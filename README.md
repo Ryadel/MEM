@@ -29,7 +29,7 @@ The fastest way is to give your AI coding assistant or LLM agent the URL of the 
 A typical prompt can be:
 
 ```text
-Download the latest MEM.md file from https://github.com/Ryadel/MEM/src/MEM.md
+Download the latest MEM.md file from https://github.com/Ryadel/MEM/blob/main/src/MEM.md
 and place it under /MEM/MEM.md in this repository.
 
 Then read and apply /MEM/MEM.md as the persistent operating memory for this project.
