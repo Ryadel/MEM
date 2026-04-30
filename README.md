@@ -10,6 +10,8 @@ It gives AI agents a readable, indexed and persistent project memory that can be
 
 MEM is designed for software projects, technical documentation, infrastructure repositories, security work, editorial workflows and any long-running technical activity where context, decisions and troubleshooting knowledge matter.
 
+Release notes are tracked in [CHANGELOG.md](CHANGELOG.md). Version-to-version migration steps are tracked in [MEM.upgrade.md](MEM.upgrade.md).
+
 ## Compatibility
 
 MEM does not require a specific runtime, dedicated SDK or proprietary integration: it is compatible with any AI coding assistant or LLM agent that can read Markdown files, inspect a repository and update project files.
@@ -29,7 +31,7 @@ The fastest way is to give your AI coding assistant or LLM agent the URL of the 
 A typical prompt can be:
 
 ```text
-Download the latest MEM.md file from https://github.com/Ryadel/MEM/blob/main/src/MEM.md
+Download the latest MEM.md file from https://raw.githubusercontent.com/Ryadel/MEM/main/src/MEM.md
 and place it under /MEM/MEM.md in this repository.
 
 Then read and apply /MEM/MEM.md as the persistent operating memory for this project.
@@ -106,11 +108,11 @@ MEM can be loaded from a remote source. In this mode, the local `MEM.md` acts as
 
 This is useful when multiple repositories need to share common agent behavior, documentation rules, safety boundaries or operational conventions.
 
-### Operational Extensions
+### Extensions
 
 MEM supports optional task-specific extensions through the `extensions/` folder. Extensions can define routines, checklists, commands, API calls, notification flows or other operational behavior that does not belong in the general project knowledge base.
 
-External side effects, such as deploys, HTTP requests, ticket creation or writes to external systems, require explicit confirmation unless the project configuration allows them.
+External actions, such as deploys, HTTP requests, ticket creation or writes to external systems, require explicit confirmation unless the project configuration allows them.
 
 ## Default knowledge base structure
 
@@ -130,7 +132,13 @@ KB_ROOT/
   logs/
   drafts/
   tasks/
+    index.md
+    current/
+    done/
   troubleshooting/
+    index.md
+    current/
+    done/
   references/
   glossary/
   changelog/
@@ -183,11 +191,11 @@ Daily activity logs named as `YYYY-MM-DD.md`. These logs should be factual and c
 
 ### `tasks/`
 
-Backlog items, bugs, refactoring notes, technical debt and active work items.
+Backlog items, bugs, refactoring notes, technical debt and active work items. Use `tasks/index.md` as the task index, `tasks/current/` for open items and `tasks/done/` for closed items.
 
 ### `troubleshooting/`
 
-Runbooks for diagnosed errors and recurring issues. A troubleshooting note should include the symptom, context, known or suspected cause, solution and related files.
+Runbooks for diagnosed errors and recurring issues. Use `troubleshooting/index.md` as the troubleshooting index, `troubleshooting/current/` for active or recurring items and `troubleshooting/done/` for closed items. A troubleshooting note should include the symptom, context, known or suspected cause, solution and related files.
 
 ### `references/`
 
@@ -195,11 +203,11 @@ External links, useful commands, dependency references, API references and envir
 
 ### `archive/`
 
-Completed, resolved or superseded knowledge that should be preserved but no longer belongs in the active working path.
+Obsolete or superseded knowledge that should be preserved but no longer belongs in the active working path. Ordinary completed tasks and resolved troubleshooting items belong in their area's `done/` folder.
 
 ### `extensions/`
 
-Optional Operational Extensions. Each extension lives in its own folder and provides task-specific operating instructions.
+Optional Extensions. Each extension lives in its own folder and provides task-specific operating instructions.
 
 ## Configuration
 
@@ -218,7 +226,8 @@ mem_remote_url: null
 mem_remote_cache: false
 mem_remote_cache_path: "MEM.remote-cache.md"
 mem_remote_fail_policy: "stop"
-mem_update_url: "https://github.com/Ryadel/MEM/blob/main/src/MEM.md"
+mem_update_url: "https://raw.githubusercontent.com/Ryadel/MEM/main/src/MEM.md"
+mem_upgrade_url: "https://raw.githubusercontent.com/Ryadel/MEM/main/MEM.upgrade.md"
 mem_auto_update: true
 
 primary_stack: "auto-detect"
@@ -234,13 +243,12 @@ document_troubleshooting: true
 document_minor_changes: false
 auto_create_missing_kb_files: true
 auto_update_kb_after_code_changes: true
-auto_archive_completed_items: true
-archive_completed_tasks: true
-archive_resolved_oneoff_troubleshooting: true
+move_completed_tasks_to_done: true
+move_completed_troubleshooting_to_done: true
 
-enable_operational_extensions: true
-allow_extension_external_side_effects: false
-require_confirmation_for_extension_side_effects: true
+extensions_enabled: true
+extensions_allow_external_side_effects: false
+extensions_require_confirmation: true
 
 ask_before_large_reorganization: true
 prefer_small_incremental_updates: true
@@ -303,15 +311,17 @@ Remote MEM content must not override explicit user instructions or higher-priori
 
 When an agent is asked to `update MEM`, it updates the local `MEM.md` from `mem_update_url`.
 
+After a successful update, the agent should check `MEM.upgrade.md` or fetch it from `mem_upgrade_url` when available, so it can apply any required patches or structural changes for the new MEM version. Upgrade steps should be applied sequentially from the previous MEM version to the new MEM version: BUILD upgrades first, then MINOR upgrades, then MAJOR upgrades.
+
 If `mem_auto_update: true`, the agent attempts the same update when creating a new daily log file (`logs/YYYY-MM-DD.md`). The daily log starts with a short MEM auto-update status line, using one of these statuses:
 
 - `succeeded` — the local `MEM.md` was updated;
 - `up-to-date` — the update was attempted, but no change was needed;
 - `failed` — the update was attempted but could not be completed.
 
-## Operational Extensions
+## Extensions
 
-Operational Extensions are optional MEM modules for task-specific behavior.
+Extensions are optional MEM modules for task-specific behavior.
 
 They may define:
 
@@ -336,15 +346,15 @@ Each extension must live in its own folder:
 extensions/<extension-id>/index.md
 ```
 
-An agent should read Operational Extensions when:
+An agent should read Extensions when:
 
 - the user explicitly asks for extension behavior;
 - the current task clearly matches an active extension listed in `extensions/EXT.md`;
 - a relevant knowledge base page points to an extension.
 
-Operational Extensions must not override user instructions, `MEM.md` or `MEM.config.md`. They may only refine behavior for their own task domain.
+Extensions must not override user instructions, `MEM.md` or `MEM.config.md`. They may only refine behavior for their own task domain.
 
-## External side effects
+## External actions
 
 Extensions may describe actions that change state outside the local repository, such as:
 
@@ -354,10 +364,10 @@ Extensions may describe actions that change state outside the local repository, 
 - ticket creation;
 - writes to external systems.
 
-These external side effects require explicit user confirmation unless this is explicitly allowed in `MEM.config.md`:
+These external actions require explicit user confirmation unless this is explicitly allowed in `MEM.config.md`:
 
 ```yaml
-allow_extension_external_side_effects: true
+extensions_allow_external_side_effects: true
 ```
 
 Extensions must never send secrets, tokens, passwords, real environment variable values, raw logs or unnecessary personal data.
@@ -470,7 +480,8 @@ architecture/system-overview.md
 conventions/coding-style.md
 conventions/naming.md
 conventions/comments.md
-tasks/backlog.md
+tasks/index.md
+tasks/current/backlog.md
 logs/YYYY-MM-DD.md
 ```
 

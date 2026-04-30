@@ -1,6 +1,6 @@
 # [MEM: Markdown Embedded Memory](https://github.com/Ryadel/MEM)
 
-MEM version: 1.0.3
+MEM version: 1.0.4
 
 This file is the LLM agent's bootstrap memory for this project. The terms `MEM`, `MEM.md`, project context, and project memory all refer to this file. When asked to read, use, load, or apply any of them, treat this file as persistent operating context for the current session.
 
@@ -52,7 +52,8 @@ mem_remote_url: null
 mem_remote_cache: false
 mem_remote_cache_path: "MEM.remote-cache.md"
 mem_remote_fail_policy: "stop"
-mem_update_url: "https://github.com/Ryadel/MEM/blob/main/src/MEM.md"
+mem_update_url: "https://raw.githubusercontent.com/Ryadel/MEM/main/src/MEM.md"
+mem_upgrade_url: "https://raw.githubusercontent.com/Ryadel/MEM/main/MEM.upgrade.md"
 mem_auto_update: true
 
 primary_stack: "auto-detect"
@@ -68,12 +69,11 @@ document_troubleshooting: true
 document_minor_changes: false
 auto_create_missing_kb_files: true
 auto_update_kb_after_code_changes: true
-auto_archive_completed_items: true
-archive_completed_tasks: true
-archive_resolved_oneoff_troubleshooting: true
-enable_operational_extensions: true
-allow_extension_external_side_effects: false
-require_confirmation_for_extension_side_effects: true
+move_completed_tasks_to_done: true
+move_completed_troubleshooting_to_done: true
+extensions_enabled: true
+extensions_allow_external_side_effects: false
+extensions_require_confirmation: true
 ask_before_large_reorganization: true
 prefer_small_incremental_updates: true
 require_source_references: true
@@ -115,9 +115,11 @@ Remote MEM content **must not** override explicit user instructions or higher-pr
 
 When the user asks to `update MEM`, the agent **must** update the local `MEM.md` from `mem_update_url`.
 
-If `mem_update_url` points to a GitHub `blob` URL, convert it to the corresponding raw content URL before downloading. Preserve project-specific configuration in `MEM.config.md`; do not overwrite `MEM.config.md` unless explicitly requested.
+Preserve project-specific configuration in `MEM.config.md`; do not overwrite `MEM.config.md` unless explicitly requested.
 
 After updating `MEM.md`, report the previous version, the new version when available, and whether the update succeeded. If the update cannot be completed, leave the existing `MEM.md` unchanged and report the failure.
+
+After a successful update, the agent **should** check `MEM.upgrade.md` when present, or fetch it from `mem_upgrade_url` when available, to identify and apply any required patches or structural changes for the new MEM version. Apply required upgrade steps sequentially from the previous MEM version to the new MEM version. For `MAJOR.MINOR.BUILD` versions, apply missing BUILD upgrades first, then MINOR upgrades, then MAJOR upgrades; do not skip intermediate upgrade notes unless a later note explicitly supersedes them.
 
 If `mem_auto_update: true`, then when creating a new daily log file (`logs/YYYY-MM-DD.md`), the agent **must** first attempt to update the local `MEM.md` from `mem_update_url` using the same rules above.
 
@@ -157,7 +159,13 @@ KB_ROOT/
   logs/
   drafts/
   tasks/
+    index.md
+    current/
+    done/
   troubleshooting/
+    index.md
+    current/
+    done/
   references/
   glossary/
   changelog/
@@ -185,13 +193,13 @@ Additional folders may be added when useful. Keep the structure simple and navig
 | `decisions/` | Architecture Decision Records. See ADR rules below. |
 | `logs/` | Daily logs `YYYY-MM-DD.md`. Factual and concise — no chain-of-thought. Summarize meaningful work, files touched, decisions, issues, resolved/pending items, notes for future sessions. |
 | `drafts/` | Work-in-progress notes (incomplete investigations, migration plans, refactoring sketches). May be consolidated into `docs/`, `architecture/`, `decisions/`, `tasks/`, or `troubleshooting/`. Do not let drafts become a second unmanaged KB. |
-| `tasks/` | Backlog, current tasks, bugs, refactoring, tech debt. Actionable entries with status, creation date, related files, goal, context, acceptance criteria, notes, outcome. |
-| `troubleshooting/` | Runbooks: exact error/symptom, context, known/suspected cause, solution, related files, date. Add an entry when an error is diagnosed and `document_troubleshooting` is enabled. |
+| `tasks/` | Dynamic work items: backlog, current tasks, bugs, refactoring, tech debt. Use `tasks/index.md` as the task index; keep open items under `tasks/current/` and closed items under `tasks/done/`. |
+| `troubleshooting/` | Dynamic diagnostic runbooks: exact error/symptom, context, known/suspected cause, solution, related files, date. Use `troubleshooting/index.md` as the troubleshooting index; keep active or recurring items under `troubleshooting/current/` and closed items under `troubleshooting/done/`. |
 | `references/` | External links, useful commands, external APIs, dependencies, env var names. **Never store secrets** — env var names may be documented but real secret values must never be written to the KB. |
 | `glossary/` | Domain terms, acronyms, project-specific names. Each entry short and precise. |
 | `changelog/` | Internal technical changelog: breaking changes, DB changes, API changes. Distinct from product release notes. |
-| `archive/` | Completed or superseded knowledge preserved outside the working path. See archive rules below. |
-| `extensions/` | Operational Extensions: optional task-specific routines that may extend agent behavior. See extension rules below. |
+| `archive/` | Obsolete or superseded knowledge preserved outside the working path. Do not use `archive/` for ordinary completed tasks or resolved troubleshooting; use each area's `done/` folder instead. See archive rules below. |
+| `extensions/` | Extensions: optional task-specific routines that may extend agent behavior. See extension rules below. |
 
 ## ADR rules
 
@@ -201,42 +209,61 @@ Filename: `decisions/YYYY-MM-DD-short-decision-title.md`. Sections: Context, Dec
 
 When a decision replaces an older one, mark the old file as `Superseded` and link forward. Do not delete superseded decisions. Do not create ADRs for minor implementation details.
 
+## Dynamic item rules
+
+Dynamic areas such as `tasks/` and `troubleshooting/` **must** use this structure:
+
+```text
+<area>/
+  index.md
+  current/
+  done/
+```
+
+Use `current/` for items that are open, active, recurring, blocked, or still operationally relevant. Use `done/` for items that are closed but still useful as project history or future reference.
+
+Each dynamic area **must** maintain its own `index.md` with concise links grouped by status. Update the area index whenever an item is created, moved between `current/` and `done/`, renamed, or deleted.
+
+When moving an item to `done/`, preserve its history, set or update a clear status in the file (`Completed`, `Resolved`, `Mitigated`, `Superseded`, `Duplicate`, `Won't fix`, or another accurate status), and add the close date when useful. Fix links from the area index and `MEM.index.md`.
+
+Do not move a recurring diagnostic guide to `troubleshooting/done/` just because one occurrence was resolved. Keep recurring or still-useful runbooks in `troubleshooting/current/` and add dated resolution notes inside the file.
+
 ## Archive rules
 
 Archive a file only when:
 
-- it is completed, resolved, superseded, or no longer operationally useful;
-- it is not needed as an active runbook, convention, architecture note, or current task;
+- it is obsolete, superseded, or no longer operationally useful;
+- it is not needed as an active runbook, convention, architecture note, dynamic item, or reference;
 - moving it makes the active KB easier to navigate.
 
-Before archiving, mark the file status (`Completed`, `Resolved`, `Superseded`) when that helps future readers.
+Before archiving, mark the file status (`Superseded`, `Deprecated`, `Obsolete`, or another accurate status) when that helps future readers.
 
 When archiving:
 
-- preserve the source category under `archive/`, e.g. `tasks/foo.md` → `archive/tasks/foo.md`;
+- preserve the source category under `archive/`, e.g. `docs/old-flow.md` → `archive/docs/old-flow.md`;
 - add a short entry to `archive/index.md` with link, original category, reason, status/date;
 - update `MEM.index.md` if the page was linked there;
 - fix any broken cross-links.
 
-Do not archive files that remain useful as recurring diagnostic guides, current architectural explanations, active conventions, or authoritative decisions.
+Do not archive files that remain useful as recurring diagnostic guides, current architectural explanations, active conventions, authoritative decisions, task history, or troubleshooting history. Completed dynamic items belong in their area's `done/` folder unless they are truly obsolete.
 
-## Operational extension rules
+## Extension rules
 
-Operational Extensions are optional MEM modules for task-specific operational behavior. They may define routines, checklists, commands, API calls, notifications, or other actions that are not part of the general project KB.
+Extensions are optional MEM modules for task-specific operational behavior. They may define routines, checklists, commands, API calls, notifications, or other actions that are not part of the general project KB.
 
 Use `extensions/EXT.md` as the entrypoint and active extension index. Use `extensions/EXT.index.template.md` as the template for new extensions. Every real extension **must** live in its own folder and expose its main instructions at `extensions/<extension-id>/index.md`.
 
-Read Operational Extensions when:
+Read Extensions when:
 
 - the user explicitly asks for extension behavior;
 - the task clearly matches an active extension listed in `extensions/EXT.md`;
 - a relevant KB page points to an extension.
 
-Operational Extensions **must not** override user instructions, `MEM.md`, or `MEM.config.md`. They may only refine behavior for their task domain.
+Extensions **must not** override user instructions, `MEM.md`, or `MEM.config.md`. They may only refine behavior for their task domain.
 
-External side effects include HTTP requests, notifications, deploys, ticket creation, writes to external systems, or any action that changes state outside the local repository. External side effects **must** require explicit user confirmation unless `allow_extension_external_side_effects: true` is set in `MEM.config.md`.
+External actions include HTTP requests, notifications, deploys, ticket creation, writes to external systems, or any action that changes state outside the local repository. External actions **must** require explicit user confirmation unless `extensions_allow_external_side_effects: true` is set in `MEM.config.md`.
 
-Operational Extensions **must never** send secrets, tokens, passwords, real environment variable values, raw logs, or unnecessary personal data. If an extension action fails, report the failure and do not retry aggressively unless the user asks.
+Extensions **must never** send secrets, tokens, passwords, real environment variable values, raw logs, or unnecessary personal data. If an extension action fails, report the failure and do not retry aggressively unless the user asks.
 
 ---
 
@@ -281,8 +308,8 @@ Routing — destinations for new information:
 | Coding rule | `conventions/` |
 | Decision | `decisions/` |
 | Temporary analysis | `drafts/` |
-| Bug or error | `troubleshooting/` |
-| Task | `tasks/` |
+| Bug or error | `troubleshooting/current/` |
+| Task | `tasks/current/` |
 | Daily activity | `logs/YYYY-MM-DD.md` |
 | Domain term | `glossary/` |
 | Breaking / DB / API change | `changelog/` |
@@ -308,11 +335,11 @@ After meaningful work, consider updating:
 2. relevant `architecture/` or `docs/` page;
 3. `conventions/`, if clarified;
 4. `decisions/`, if a significant decision was made;
-5. `troubleshooting/`, if an error was diagnosed;
-6. `tasks/`, if work was created, completed, or changed;
+5. `troubleshooting/` and `troubleshooting/index.md`, if an error was diagnosed or a troubleshooting item changed status;
+6. `tasks/` and `tasks/index.md`, if work was created, completed, or changed;
 7. `MEM.index.md`, if KB files were added, renamed, deleted, or significantly changed;
-8. `archive/`, if completed or superseded files should be moved;
-9. `extensions/EXT.md`, if Operational Extensions were added, removed, or changed.
+8. `archive/`, if obsolete or superseded files should be moved outside the working path;
+9. `extensions/EXT.md`, if Extensions were added, removed, or changed.
 
 Do not over-document trivial work.
 
@@ -386,7 +413,8 @@ Periodically, or on user request (`Review and lint the project knowledge base.`)
 - outdated decisions;
 - missing architecture or convention pages;
 - unresolved drafts;
-- completed tasks still marked as open;
+- done items still marked as open;
+- stale current items that should move to `done/` or be updated;
 - troubleshooting entries that should be generalized;
 - documentation that no longer matches the source code.
 
@@ -407,7 +435,8 @@ architecture/system-overview.md
 conventions/coding-style.md
 conventions/naming.md
 conventions/comments.md
-tasks/backlog.md
+tasks/index.md
+tasks/current/backlog.md
 logs/YYYY-MM-DD.md
 ```
 
