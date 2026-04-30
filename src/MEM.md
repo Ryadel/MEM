@@ -1,6 +1,6 @@
 # [MEM: Markdown Embedded Memory](https://github.com/Ryadel/MEM)
 
-MEM version: 1.0.1
+MEM version: 1.0.2
 
 Update to latest version: https://github.com/Ryadel/MEM/blob/main/src/MEM.md
 
@@ -41,7 +41,7 @@ Sessions are not isolated: every meaningful session **should** leave the KB slig
 
 Project-specific configuration lives in `MEM.config.md`. If present, the agent **must** read it immediately after this file.
 
-If `MEM.config.md` is missing, use these defaults:
+If `MEM.config.md` is missing, use these defaults.
 
 ```yaml
 kb_root: "."
@@ -55,6 +55,7 @@ mem_remote_cache: false
 mem_remote_cache_path: "MEM.remote-cache.md"
 mem_remote_fail_policy: "stop"
 mem_update_url: "https://github.com/Ryadel/MEM/blob/main/src/MEM.md"
+mem_auto_update: true
 
 primary_stack: "auto-detect"
 package_manager: "auto-detect"
@@ -80,6 +81,8 @@ prefer_small_incremental_updates: true
 require_source_references: true
 mark_uncertainty: true
 ```
+
+If `MEM.config.md` exists but omits an option, use the default value for that option from the list above.
 
 Precedence (highest to lowest):
 
@@ -117,6 +120,20 @@ When the user asks to `update MEM`, the agent **must** update the local `MEM.md`
 If `mem_update_url` points to a GitHub `blob` URL, convert it to the corresponding raw content URL before downloading. Preserve project-specific configuration in `MEM.config.md`; do not overwrite `MEM.config.md` unless explicitly requested.
 
 After updating `MEM.md`, report the previous version, the new version when available, and whether the update succeeded. If the update cannot be completed, leave the existing `MEM.md` unchanged and report the failure.
+
+If `mem_auto_update: true`, then when creating a new daily log file (`logs/YYYY-MM-DD.md`), the agent **must** first attempt to update the local `MEM.md` from `mem_update_url` using the same rules above.
+
+The new daily log file **must** start with a concise MEM auto-update status line before the session notes. Use this convention:
+
+```markdown
+> MEM auto-update: succeeded from `mem_update_url` (previous: 1.0.1, current: 1.0.2).
+```
+
+Allowed statuses are:
+
+- `succeeded` — the local `MEM.md` was updated;
+- `up-to-date` — the update was attempted, but no change was needed;
+- `failed` — the update was attempted but could not be completed; include a short reason and leave the existing `MEM.md` unchanged.
 
 ## Compression principle
 

@@ -205,7 +205,7 @@ Optional Operational Extensions. Each extension lives in its own folder and prov
 
 Project-specific configuration lives in `MEM.config.md`.
 
-If `MEM.config.md` is missing, MEM uses default values. A minimal configuration may look like this:
+If `MEM.config.md` is missing, MEM uses default values. If `MEM.config.md` exists but omits an option, MEM uses the default value for that option from `MEM.md`. A minimal configuration may look like this:
 
 ```yaml
 kb_root: "."
@@ -218,6 +218,8 @@ mem_remote_url: null
 mem_remote_cache: false
 mem_remote_cache_path: "MEM.remote-cache.md"
 mem_remote_fail_policy: "stop"
+mem_update_url: "https://github.com/Ryadel/MEM/blob/main/src/MEM.md"
+mem_auto_update: true
 
 primary_stack: "auto-detect"
 package_manager: "auto-detect"
@@ -296,6 +298,16 @@ Continues with the cached remote MEM file if available; otherwise stops.
 `MEM.remote-cache.md` is a technical cache file. It should not be linked from `MEM.index.md` and should not be treated as navigable project documentation.
 
 Remote MEM content must not override explicit user instructions or higher-priority system and developer instructions. Remote MEM files must not contain secrets.
+
+## Updating MEM
+
+When an agent is asked to `update MEM`, it updates the local `MEM.md` from `mem_update_url`.
+
+If `mem_auto_update: true`, the agent attempts the same update when creating a new daily log file (`logs/YYYY-MM-DD.md`). The daily log starts with a short MEM auto-update status line, using one of these statuses:
+
+- `succeeded` — the local `MEM.md` was updated;
+- `up-to-date` — the update was attempted, but no change was needed;
+- `failed` — the update was attempted but could not be completed.
 
 ## Operational Extensions
 
