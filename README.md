@@ -311,7 +311,7 @@ Remote MEM content must not override explicit user instructions or higher-priori
 
 When an agent is asked to `update MEM`, it updates the local `MEM.md` from `mem_update_url`.
 
-After a successful update, the agent should check `MEM.upgrade.md` or fetch it from `mem_upgrade_url` when available, so it can apply any required patches or structural changes for the new MEM version. Upgrade steps should be applied sequentially from the previous MEM version to the new MEM version: BUILD upgrades first, then MINOR upgrades, then MAJOR upgrades.
+After a successful update, the agent should fetch the current [MEM.upgrade.md](https://raw.githubusercontent.com/Ryadel/MEM/main/MEM.upgrade.md) from `mem_upgrade_url`. `MEM.upgrade.md` is the LLM-friendly, operational counterpart to the human-readable [CHANGELOG.md](CHANGELOG.md): it lists the patches and structural changes an agent may need to apply. Upgrade steps should be applied sequentially from the previous MEM version to the new MEM version: BUILD upgrades first, then MINOR upgrades, then MAJOR upgrades.
 
 If `mem_auto_update: true`, the agent attempts the same update when creating a new daily log file (`logs/YYYY-MM-DD.md`). The daily log starts with a short MEM auto-update status line, using one of these statuses:
 
@@ -549,4 +549,6 @@ Resolved
 
 ## License
 
-Add the project license here.
+MEM is released under the [MIT License](LICENSE).
+
+See [CHANGELOG.md](CHANGELOG.md) for release notes and [MEM.upgrade.md](MEM.upgrade.md) for version-to-version upgrade steps.
