@@ -33,7 +33,8 @@ Download the latest MEM.md file from https://github.com/Ryadel/MEM/src/MEM.md
 and place it under /MEM/MEM.md in this repository.
 
 Then read and apply /MEM/MEM.md as the persistent operating memory for this project.
-Initialize the MEM knowledge base if required, then inspect the project before making implementation claims.
+Initialize the MEM knowledge base if required, 
+then inspect the project before making implementation claims.
 ```
 
 The agent should create the target folder if it does not exist, save the file locally, then use it as the bootstrap memory for the project.
@@ -50,7 +51,8 @@ A typical first prompt can be:
 
 ```text
 Read and apply /MEM/MEM.md as the persistent operating memory for this project.
-Initialize the MEM knowledge base if required, then inspect the project before making implementation claims.
+Initialize the MEM knowledge base if required, 
+then inspect the project before making implementation claims.
 ```
 
 From that point on, the agent can use MEM as the project’s persistent context layer: it can read existing documentation, update daily logs, record decisions, preserve troubleshooting notes and keep the knowledge base aligned with the actual source code.
