@@ -78,3 +78,28 @@ extensions/mem-commands/commands/define.md
 ```
 
 Nothing under `extensions/mem-commands/custom/` is listed here, and an update therefore never touches it.
+
+### mem-toolbox
+
+- **version**: 1.0.0
+- **provides**: `TOOLS`, and the CLI capability registry
+- **precedence**: custom
+- **external actions**: no
+- **default mode**: read-only
+- **summary**: which CLI tool to use for a task, and whether it is available on this host. Ships a small image
+  processing catalogue.
+- **base files**:
+
+```text
+extensions/mem-toolbox/index.md
+extensions/mem-toolbox/TOOL.template.md
+extensions/mem-toolbox/catalog/index.md
+extensions/mem-toolbox/catalog/imagemagick.md
+extensions/mem-toolbox/catalog/vips.md
+extensions/mem-toolbox/catalog/oxipng.md
+extensions/mem-toolbox/catalog/resvg.md
+extensions/mem-toolbox/catalog/realesrgan-ncnn-vulkan.md
+```
+
+Nothing under `extensions/mem-toolbox/custom/` is listed here, so project entries and per-host data survive every
+update.

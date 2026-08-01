@@ -4,6 +4,31 @@ All notable MEM changes are documented in this file.
 
 MEM uses `MAJOR.MINOR.BUILD` versioning. Version-to-version migration steps are documented in [MEM.upgrade.md](MEM.upgrade.md).
 
+## 1.1.3 - 2026-08-01
+
+### Added
+
+- Added the `mem-toolbox` extension: which CLI tool to use for a task, and whether it is available on the current
+  host.
+- Added `MEM TOOLS`, read-only, listing known tools with their capability, availability, and stale verifications.
+- Added `TOOL.template.md`, with separate schemas for a portable catalogue entry and a per-host installed entry.
+- Added an initial catalogue scoped to image processing: ImageMagick, vips, oxipng, resvg, and
+  realesrgan-ncnn-vulkan, each with its licence read from upstream and dated.
+
+### Changed
+
+- The manifest carries a second entry, so an unresolved capability can lead to an installation proposal.
+
+### Compatibility
+
+- Availability is recorded per host, never inside a catalogue entry, so a shared knowledge base cannot make an
+  agent on another machine assume a tool is present and skip asking.
+- Per-host files are written automatically because they record an observation; catalogue entries require
+  confirmation because they are an editorial judgement.
+- Precedence is **custom wins**, the opposite of `mem-commands`, and the override is disclosed on first use.
+- The agent never installs a tool: entries carry URLs, never install commands.
+- No configuration options were added, removed, or renamed.
+
 ## 1.1.2 - 2026-08-01
 
 ### Added

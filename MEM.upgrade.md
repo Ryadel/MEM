@@ -22,6 +22,43 @@ Before applying an upgrade, identify the current local MEM version and the targe
 1.0.0 through 1.0.2. A knowledge base on a base earlier than 1.0.3 should be re-initialized against the current
 MEM version rather than migrated step by step.
 
+## 1.1.2 -> 1.1.3
+
+### Summary
+
+Publishes the `mem-toolbox` extension: a registry of which CLI tool to use for a task, and of what is actually
+available on each host. Nothing is installed automatically.
+
+### Required actions
+
+- Replace `MEM.md` with version 1.1.3.
+- No installation is required. Accept the proposal raised on first use, or install the base files listed in the
+  manifest entry for `mem-toolbox`.
+- If installed, register it in `EXT.md` with `status: active`, its version, and the trigger `TOOLS`.
+- Note that this extension declares **custom wins**, the opposite of `mem-commands`. Do not normalise the two:
+  each extension declares its own direction.
+- If the project already records CLI tooling elsewhere, split it. Portable facts — which tool, which invocation,
+  which licence — go to `custom/tools/`; per-machine facts — path, version, availability — go to
+  `custom/installed/<host>.md`. Availability recorded as a portable fact is the failure this extension exists to
+  prevent.
+- Decide whether `custom/installed/` is committed. It is by default; a project that keeps host facts out of its
+  history may gitignore that folder alone.
+
+### Configuration changes
+
+None.
+
+### Verification
+
+- `MEM.md` reports version 1.1.3.
+- A capability lookup resolves from one index read, without opening every tool page.
+- On a host with no `custom/installed/<host>.md`, the agent probes and records rather than trusting another
+  host's data.
+- A tool recorded `declined` is not proposed again in a later session.
+- `MEM TOOLS` lists entries without re-probing.
+- No catalogue entry contains an install command, a credential, or an undated licence claim.
+- Updating the extension leaves `custom/` untouched.
+
 ## 1.1.1 -> 1.1.2
 
 ### Summary

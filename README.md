@@ -263,6 +263,16 @@ The `mem-commands` extension adds three more. It is not installed by default; th
 
 `DEFINE` is the exception that writes: it creates a definition under the extension's `custom/` folder, with confirmation. A project command is worth defining when a procedure has several steps, recurs, needs judgement, and costs something when a step is skipped — a release checklist rather than a one-off.
 
+### Tooling from `mem-toolbox`
+
+The `mem-toolbox` extension answers two questions an agent otherwise re-derives every session: which CLI tool to use for a task, and whether it is actually installed here. It adds `MEM TOOLS`, which lists what is known.
+
+It keeps those two answers apart, and that separation is the point. Which tool a project uses is portable knowledge and belongs in the repository. Whether a tool exists at a given path is true of one machine only, so it lives in per-host files. Recording availability as a plain fact would let an agent on a colleague's machine read "available", skip asking you, and fail — so availability is always stamped with a host and a date, and evidence from another machine is treated as a hint rather than proof.
+
+Per-host observations are written automatically, since they only record what a version command answered. Catalogue entries need confirmation, because deciding "this is what we use for X" is a judgement rather than an observation. Absence is recorded too: a tool you declined is not proposed again next session.
+
+MEM ships a small image-processing catalogue — ImageMagick, vips, oxipng, resvg, realesrgan-ncnn-vulkan — with each licence read from upstream and dated. Your own entries override it, since local knowledge is closer to the truth. The agent never installs anything: entries carry project URLs, never install commands.
+
 ## Configuration
 
 Project-specific configuration lives in `MEM.config.md`.
