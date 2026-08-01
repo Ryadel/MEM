@@ -22,6 +22,42 @@ Before applying an upgrade, identify the current local MEM version and the targe
 1.0.0 through 1.0.2. A knowledge base on a base earlier than 1.0.3 should be re-initialized against the current
 MEM version rather than migrated step by step.
 
+## 1.1.1 -> 1.1.2
+
+### Summary
+
+Publishes the `mem-commands` extension, providing `REVIEW`, `CHECK`, and `DEFINE`. Nothing is installed
+automatically: the extension is offered when one of its commands is used, and installed only on confirmation.
+
+### Required actions
+
+- Replace `MEM.md` with version 1.1.2.
+- No installation is required. If the project wants the commands, accept the proposal raised on first use, or
+  install the base files listed in the manifest entry for `mem-commands`.
+- If installed, register it in `EXT.md` with `status: active`, its version, and the triggers `REVIEW`, `CHECK`,
+  `DEFINE`.
+- Treat `REVIEW`, `CHECK`, and `DEFINE` as reserved: an existing project command using one of those names must be
+  renamed, since a custom command cannot shadow a base one.
+- To let `CHECK` verify build and test outcomes, set `build_command` and `test_command` explicitly in
+  `MEM.config.md`. Auto-detected values are never executed.
+
+### Configuration changes
+
+None.
+
+### Verification
+
+- `MEM.md` reports version 1.1.2.
+- `MEM HELP` lists `REVIEW`, `CHECK`, and `DEFINE` once the extension is installed.
+- `MEM REVIEW` on a plan does not report unimplemented work as a defect.
+- `MEM CHECK` reports build and test as `Unverified` when no command is configured, and never claims a success it
+  did not observe.
+- A missing or ambiguous target produces `BLOCKED` with the candidates listed.
+- Neither `REVIEW` nor `CHECK` modifies a file, changes an item status, or creates a commit.
+- `DEFINE` writes only under `extensions/mem-commands/custom/`, after confirmation.
+- A custom command named `REVIEW`, `CHECK`, or `DEFINE` is refused, with the collision reported.
+- An update of the extension leaves `custom/` untouched.
+
 ## 1.1.0 -> 1.1.1
 
 ### Summary

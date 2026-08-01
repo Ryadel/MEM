@@ -58,8 +58,23 @@ exact update set for that extension.
 
 ## Catalogue
 
-_No extensions are published yet._
+### mem-commands
 
-The mechanism ships ahead of its first entry, so an agent fetching this file gets a definite answer — "nothing
-distributed provides that" — instead of an unreachable catalogue, which is a different situation requiring a
-different message.
+- **version**: 1.0.0
+- **provides**: `REVIEW`, `CHECK`, `DEFINE`
+- **precedence**: base
+- **external actions**: no
+- **default mode**: read-only
+- **summary**: review a plan before implementation, verify an implementation declared complete, and author
+  project-specific commands.
+- **base files**:
+
+```text
+extensions/mem-commands/index.md
+extensions/mem-commands/COMMAND.template.md
+extensions/mem-commands/commands/review.md
+extensions/mem-commands/commands/check.md
+extensions/mem-commands/commands/define.md
+```
+
+Nothing under `extensions/mem-commands/custom/` is listed here, and an update therefore never touches it.

@@ -4,6 +4,35 @@ All notable MEM changes are documented in this file.
 
 MEM uses `MAJOR.MINOR.BUILD` versioning. Version-to-version migration steps are documented in [MEM.upgrade.md](MEM.upgrade.md).
 
+## 1.1.2 - 2026-08-01
+
+### Added
+
+- Added the `mem-commands` extension, the first entry in the manifest.
+- Added `MEM REVIEW <target>`: assesses a plan, task, or troubleshooting document before or independently of its
+  implementation, without treating unbuilt work as a defect.
+- Added `MEM CHECK <target>`: assumes the work was declared complete and verifies it against the implementation
+  that exists, including the diff, the source, and build and test outcomes.
+- Added `MEM DEFINE <COMMAND>`: authors a project-specific command from `COMMAND.template.md` into
+  `custom/`, the extension's only writing operation.
+- Added `COMMAND.template.md`, the definition schema, with `mode`, `shell`, and `external` as permission fields.
+- Added a shared procedure for the review commands: target resolution, evidence labelling, four severity levels,
+  five verdicts with a fixed precedence, and a fixed report layout.
+
+### Changed
+
+- The manifest now carries its first catalogue entry, so an unresolved `REVIEW`, `CHECK`, or `DEFINE` leads to an
+  installation proposal rather than a dead end.
+
+### Compatibility
+
+- `REVIEW` and `CHECK` are read-only: they never modify code, change an item's status, move files, or commit.
+  Reports are returned in the conversation and persisted only on request.
+- `CHECK` runs only build and test commands explicitly configured in `MEM.config.md`, never auto-detected ones,
+  and subject to `extensions_require_confirmation`. Anything not run is reported as `Unverified`.
+- `DEFINE` writes only under `extensions/mem-commands/custom/`, with confirmation.
+- No configuration options were added, removed, or renamed.
+
 ## 1.1.1 - 2026-08-01
 
 ### Added

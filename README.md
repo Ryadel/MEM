@@ -247,6 +247,22 @@ Extensions can add further commands. Setting `extensions_enabled: false` disable
 
 If a command is recognised but nothing local implements it, the agent checks the extension manifest. When a distributed extension provides that command, it offers to install it — once, and never without a confirmation naming the files and the source URL.
 
+### Commands from `mem-commands`
+
+The `mem-commands` extension adds three more. It is not installed by default; the agent offers it the first time you use one of them.
+
+| Command | Purpose |
+|---|---|
+| `MEM REVIEW <target>` | Assess a plan, task or troubleshooting note **before** it is implemented |
+| `MEM CHECK <target>` | Verify work that was **declared complete** against the implementation that actually exists |
+| `MEM DEFINE <COMMAND>` | Write a command of your own |
+
+`REVIEW` and `CHECK` are the same machinery pointed at different assumptions, which is why they are one extension: `REVIEW` never treats unbuilt work as a defect, `CHECK` never takes a completion claim at face value. Both are read-only — they report findings with a severity and a verdict, and never change a file, a task status, or the repository.
+
+`CHECK` runs your build and test commands only if you set them explicitly in `MEM.config.md`; auto-detected commands are never executed, and anything it could not run is reported as unverified rather than assumed to pass.
+
+`DEFINE` is the exception that writes: it creates a definition under the extension's `custom/` folder, with confirmation. A project command is worth defining when a procedure has several steps, recurs, needs judgement, and costs something when a step is skipped — a release checklist rather than a one-off.
+
 ## Configuration
 
 Project-specific configuration lives in `MEM.config.md`.
