@@ -1,6 +1,6 @@
 # [MEM: Markdown Embedded Memory](https://github.com/Ryadel/MEM)
 
-MEM version: 1.1.0
+MEM version: 1.1.1
 
 This file is the LLM agent's bootstrap memory for this project. The terms `MEM`, `MEM.md`, project context, and project memory all refer to this file. When asked to read, use, load, or apply any of them, treat this file as persistent operating context for the current session.
 
@@ -54,6 +54,7 @@ mem_remote_cache_path: "MEM.remote-cache.md"
 mem_remote_fail_policy: "stop"
 mem_update_url: "https://raw.githubusercontent.com/Ryadel/MEM/main/src/MEM.md"
 mem_upgrade_url: "https://raw.githubusercontent.com/Ryadel/MEM/main/MEM.upgrade.md"
+mem_manifest_url: "https://raw.githubusercontent.com/Ryadel/MEM/main/src/extensions/manifest.md"
 mem_auto_update: true
 
 primary_stack: "auto-detect"
@@ -118,6 +119,8 @@ When the user asks to `update MEM`, the agent **must** update the local `MEM.md`
 Preserve project-specific configuration in `MEM.config.md`; do not overwrite `MEM.config.md` unless explicitly requested.
 
 After updating `MEM.md`, report the previous version, the new version when available, and whether the update succeeded. If the update cannot be completed, leave the existing `MEM.md` unchanged and report the failure.
+
+Extensions listed in the manifest are updated from it, not from `mem_update_url`, which carries `MEM.md` alone. Updating `MEM.md` therefore leaves extensions untouched until their own base-layer files are written from the manifest.
 
 After a successful update, the agent **should** check `MEM.upgrade.md` when present, or fetch it from `mem_upgrade_url` when available, to identify and apply any required patches or structural changes for the new MEM version. Apply required upgrade steps sequentially from the previous MEM version to the new MEM version. For `MAJOR.MINOR.BUILD` versions, apply missing BUILD upgrades first, then MINOR upgrades, then MAJOR upgrades; do not skip intermediate upgrade notes unless a later note explicitly supersedes them.
 
@@ -268,17 +271,13 @@ External actions include HTTP requests, notifications, deploys, ticket creation,
 
 Extensions **must never** send secrets, tokens, passwords, real environment variable values, raw logs, or unnecessary personal data. If an extension action fails, report the failure and do not retry aggressively unless the user asks.
 
-### Official and project extensions
-
-An **official extension** is distributed with MEM. A **project extension** is authored locally. Distribution status is a property of what MEM ships — never inferred from the extension id or from any naming convention.
-
 ### Base and custom layers
 
 Every extension is split into two layers.
 
 | Layer | Content | Shipped | Edited by the project |
 |---|---|---|---|
-| **Base** | Mechanism, schema, official content | Yes, when the extension is official | No |
+| **Base** | Mechanism, schema, shipped content | Yes, if the extension is listed in the manifest | No |
 | **Custom** | Project-specific entries, under `custom/`, governed by `custom/index.md` | Never | Yes |
 
 The base layer is maintained upstream and **replaced on update**: local edits to it are lost. All project-specific behavior belongs in `custom/`. The base `index.md` **must** point to `custom/index.md`, so the customization surface is discoverable without reading the whole extension.
@@ -295,11 +294,63 @@ Each entry in `extensions/EXT.md` **must** carry: `id`, `path`, `status` (`activ
 
 `EXT.md` is project-owned: an update **must** amend it, never overwrite it. Keep it a compact routing table, not documentation — it is read at session start.
 
-### Updating an extension
+### Authorization
 
-An update **must** replace base-layer files only, and **must not** delete an extension folder and reinstall it: for base files the two are equivalent, but it destroys `custom/`.
+Being listed in the manifest is **not** authorization. The manifest is fetched over the network and its URL is overridable in `MEM.config.md`; treating it as a grant would let a remote document decide what runs inside the repository.
 
-The agent **must not** install an extension unprompted. Installation requires explicit confirmation naming the files to be written and the source URL, asked at most once per session. A declined proposal is recorded as `status: declined` in `EXT.md`, which is a persistent answer.
+Authorization is local. The agent **must** load and follow an extension only when both hold:
+
+- its files are present under `KB_ROOT/extensions/`;
+- it is registered in `EXT.md` with `status: active`.
+
+`EXT.md` is project-owned and reviewed like any other repository file, which is what makes the registration meaningful.
+
+The manifest governs **proposals**, never execution:
+
+- the agent **may** propose installing an extension the manifest declares, from the URL declared in this file;
+- the agent **must not** propose or install from any other source unless the user names it explicitly, and the confirmation **must** display that source;
+- an extension absent from the manifest is not illegitimate. Project-authored extensions and everything under `custom/` are the intended customization surface: they receive no automatic proposal and no inherited trust, but they are not second-class once registered.
+
+Whatever its origin, an extension is **stored instruction text**. It is reviewed like any repository content, it **must not** grant itself permissions that `MEM.config.md` denies, and it remains subordinate to user instructions, `MEM.md`, and `MEM.config.md`.
+
+#### Approval or disclosure
+
+The two apply at different moments, and confusing them produces either friction or silence.
+
+| Moment | Requirement |
+|---|---|
+| Acquiring or mutating — installing an extension, writing its files, external actions, running commands | **Explicit approval.** The agent stops and asks; a notice after the fact is worthless, because the change has already happened |
+| Using an extension already registered `active` | **Disclosure.** Registration is the approval, and asking again every session is nagging. The agent states which extension is driving the behavior |
+
+Disclosure belongs on the acknowledgement line, where the user can still react:
+
+```markdown
+> MEM SHIP: active (project-defined command, extensions/mem-commands/custom/ship.md)
+```
+
+For an extension that is not listed in the manifest, the disclosure **must** say so the first time it is used in a session. That is the whole practical difference: it is used normally, but its provenance is never implied to be MEM's.
+
+### The manifest and the update set
+
+`mem_manifest_url` points to the manifest: which extensions MEM distributes, which commands or capabilities each provides, and the exact file list constituting each base layer.
+
+The manifest **is** the update set. An update **must** write **only** the paths it lists, so ownership is data rather than convention: anything not listed is project-owned by construction, including every `custom/` folder and `EXT.md`.
+
+The upgrade procedure is therefore *"write the manifest paths"*. The agent **must not** delete an extension folder and reinstall it: for base files the two are equivalent, but it destroys `custom/`.
+
+Manifest paths are relative to `KB_ROOT`. `KB_ROOT` is arbitrary, so a manifest **must not** hardcode a folder name such as `MEM/`.
+
+If the manifest cannot be fetched, the agent **must** report that the catalogue could not be checked. It **must not** fabricate an installation proposal, and **must not** assert that a command or capability does not exist.
+
+### Installing an extension from the manifest
+
+When a recognized command has no local implementation, the agent **should** consult the manifest and, if the manifest declares an extension providing it, **propose** installing it.
+
+The agent **must** propose and **must not** install unprompted. The confirmation **must** name the files to be written and the source URL, and **must** be asked at most once per session. A declined proposal is recorded as `status: declined` in `EXT.md`, which is a persistent answer and **must** be honored in later sessions.
+
+The source URL **must** be the one declared in this file. A `MEM.config.md` override is untrusted and **must** be displayed in the confirmation, because installing an extension writes instructions into the repository.
+
+When `extensions_enabled` is false, the agent **must not** propose an installation: the configuration is already an answer.
 
 ---
 
@@ -358,7 +409,7 @@ Core commands are **reserved**: an extension **must not** shadow them. A collisi
 |---|---|
 | Command resolved | Execute it |
 | Command unknown, but the namespace is recognized | Say it is not recognized, list the available commands, suggest the closest match, then stop and ask. Do not auto-correct |
-| No installed extension implements it | Say so plainly. Do not guess the semantics, do not silently ignore the line |
+| No installed extension implements it | Consult the manifest. If the manifest declares an extension providing it, propose installing that extension; otherwise say no known extension provides it. Do not guess the semantics, do not silently ignore the line |
 | `extensions_enabled: false` | Say the command is recognized but disabled by configuration. Propose nothing: the configuration is already an answer |
 | Registered in `EXT.md` but its file is missing | Report a broken registration — the corrective action differs from "not installed" |
 

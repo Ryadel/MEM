@@ -245,6 +245,8 @@ If a command is recognised but nothing implements it, the agent says so. It will
 
 Extensions can add further commands. Setting `extensions_enabled: false` disables everything except the core commands above.
 
+If a command is recognised but nothing local implements it, the agent checks the extension manifest. When a distributed extension provides that command, it offers to install it — once, and never without a confirmation naming the files and the source URL.
+
 ## Configuration
 
 Project-specific configuration lives in `MEM.config.md`.
@@ -264,6 +266,7 @@ mem_remote_cache_path: "MEM.remote-cache.md"
 mem_remote_fail_policy: "stop"
 mem_update_url: "https://raw.githubusercontent.com/Ryadel/MEM/main/src/MEM.md"
 mem_upgrade_url: "https://raw.githubusercontent.com/Ryadel/MEM/main/MEM.upgrade.md"
+mem_manifest_url: "https://raw.githubusercontent.com/Ryadel/MEM/main/src/extensions/manifest.md"
 mem_auto_update: true
 
 primary_stack: "auto-detect"
@@ -390,6 +393,19 @@ Every extension is split into two layers:
 The base layer points to `custom/index.md`, so the customisation surface is always in the same place. An extension with nothing to customise says so. An extension you have not customised simply has no `custom/` folder, which is a normal state.
 
 Each extension declares whether base or custom wins when both define the same entry, because the right answer differs by extension: shadowing a command is a hijack risk, while overriding a reference entry with local knowledge is usually correct.
+
+### The manifest, and what authorises an extension
+
+MEM publishes a manifest listing the extensions it distributes, what each one provides, and the exact files that make it up. That file list is also the update set: an update writes only what the manifest names, which is why your `custom/` folders and your `EXT.md` are safe by construction rather than by a rule someone has to remember.
+
+The manifest is a catalogue, not a permission slip. It is fetched over the network and its URL can be overridden in configuration, so it never decides what runs in your repository. An extension is used because its files are in your repository and it is registered `active` in `EXT.md` — both reviewable in a pull request like anything else.
+
+That splits cleanly into two behaviours:
+
+- **installing** an extension, or letting one write files, run commands or reach outside the repository, needs your explicit approval — a notice afterwards would be worthless, the change has already happened;
+- **using** an extension you already registered needs disclosure, not another prompt. The agent names it on the acknowledgement line, and says when an extension is one you wrote rather than one MEM distributes.
+
+An extension outside the manifest is perfectly legitimate — writing your own is the point of the custom layer. It simply gets no automatic offer to install and no borrowed trust.
 
 An agent should read Extensions when:
 

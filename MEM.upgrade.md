@@ -22,6 +22,43 @@ Before applying an upgrade, identify the current local MEM version and the targe
 1.0.0 through 1.0.2. A knowledge base on a base earlier than 1.0.3 should be re-initialized against the current
 MEM version rather than migrated step by step.
 
+## 1.1.0 -> 1.1.1
+
+### Summary
+
+Adds the extension manifest and the rules built on it: the update set, the installation proposal, and an
+authorization model that keeps the decision about what may run inside the repository rather than in a remote
+file.
+
+### Required actions
+
+- Replace `MEM.md` with version 1.1.1.
+- Treat the manifest as the update set: when updating an extension, write only the paths it lists, and never
+  delete an extension folder to reinstall it.
+- Verify that no local manifest or install routine hardcodes a folder name such as `MEM/`; paths are relative
+  to `KB_ROOT`.
+- Confirm every registered extension is present locally and marked `status: active` in `EXT.md`. An extension
+  whose files are missing is a broken registration, not an installed extension.
+- Record any refused installation as `status: declined` in `EXT.md` rather than re-proposing it.
+- Where a project document instructs an agent to fetch extension files from somewhere other than the URL
+  declared in `MEM.md`, make that source explicit so it can be shown at confirmation time.
+
+### Configuration changes
+
+- Add `mem_manifest_url` if the project needs to override the default catalogue location. Its default is
+  `https://raw.githubusercontent.com/Ryadel/MEM/main/src/extensions/manifest.md`.
+
+### Verification
+
+- `MEM.md` reports version 1.1.1 and contains `mem_manifest_url`.
+- An unresolved command leads to a proposal only when the manifest declares an extension providing it.
+- No installation happens without a confirmation naming the files and the source URL.
+- A declined proposal is not raised again in a later session.
+- With `extensions_enabled: false`, nothing is proposed.
+- An unreachable manifest is reported as such, without a fabricated proposal and without asserting that a
+  command does not exist.
+- An extension outside the manifest still works once registered, and discloses its provenance on first use.
+
 ## 1.0.4 -> 1.1.0
 
 ### Summary

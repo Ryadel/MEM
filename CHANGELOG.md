@@ -4,6 +4,39 @@ All notable MEM changes are documented in this file.
 
 MEM uses `MAJOR.MINOR.BUILD` versioning. Version-to-version migration steps are documented in [MEM.upgrade.md](MEM.upgrade.md).
 
+## 1.1.1 - 2026-08-01
+
+### Added
+
+- Added the extension manifest at `src/extensions/manifest.md`: which extensions MEM distributes, what each
+  provides, and the exact file list of each base layer.
+- Added `src/extensions/EXT.index.template.md`, the registration template the knowledge base structure has
+  referenced since 1.0.4.
+- Added the authorization model: the manifest governs what may be **proposed**, while an extension is loaded
+  only when its files are present locally and it is registered `active` in `EXT.md`.
+- Added the approval / disclosure boundary. Acquiring or mutating — installing, writing files, external actions,
+  running commands — requires explicit approval. Using an extension already registered `active` requires
+  disclosure on the acknowledgement line instead, since registration is the approval.
+- Added the installation proposal: proposed at most once per session, never performed unprompted, confirmed with
+  the file list and the source URL, and recorded as `status: declined` when refused.
+
+### Changed
+
+- The manifest is now the update set: an update writes only the paths it lists, so `custom/` folders and
+  `EXT.md` are project-owned by construction.
+- Manifest paths are relative to `KB_ROOT` and must not hardcode a folder name such as `MEM/`.
+- Updating `MEM.md` no longer implies updating extensions: `mem_update_url` carries `MEM.md` alone.
+- An extension not listed in the manifest discloses its provenance the first time it is used in a session.
+
+### Configuration
+
+- Added `mem_manifest_url`.
+
+### Compatibility
+
+- Installation is still a single `MEM.md`. Extensions are installed on demand, with confirmation.
+- With `extensions_enabled: false`, no installation is ever proposed.
+
 ## 1.1.0 - 2026-08-01
 
 ### Added
