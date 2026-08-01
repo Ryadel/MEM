@@ -4,6 +4,32 @@ All notable MEM changes are documented in this file.
 
 MEM uses `MAJOR.MINOR.BUILD` versioning. Version-to-version migration steps are documented in [MEM.upgrade.md](MEM.upgrade.md).
 
+## 1.1.0 - 2026-08-01
+
+### Added
+
+- Added reserved commands: the grammar `MEM <COMMAND> [target]`, activation and non-activation rules, the
+  acknowledgement line, the resolution order, and the dispatch table covering unknown, absent, disabled, and
+  broken-registration cases.
+- Added the core commands `MEM HELP`, `MEM STATUS`, `MEM INIT`, `MEM UPDATE`, `MEM LINT`, and `MEM FORCE`.
+- Added the base / custom layer pattern for extensions, including the requirement that each extension declare
+  its own precedence and point to `custom/index.md`.
+- Added a required registration schema for entries in `extensions/EXT.md`.
+
+### Changed
+
+- `extensions/EXT.md` is now read at session start when extensions are enabled, because it is the routing table
+  for reserved commands.
+- The knowledge base structure shows `custom/` inside an extension folder.
+- Extension updates replace base-layer files only; deleting and reinstalling an extension folder is forbidden.
+
+### Compatibility
+
+- Prompts containing no reserved command behave exactly as in 1.0.4.
+- No configuration options were added, removed, or renamed.
+- Installation is unchanged: a single `MEM.md` file.
+- 1.0.4 is the earliest documented upgrade baseline.
+
 ## 1.0.4 - 2026-04-30
 
 ### Added

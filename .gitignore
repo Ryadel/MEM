@@ -13,6 +13,7 @@ Desktop.ini
 *.sln.docstates
 
 # Local AI assistant/tooling state
+/dev/
 .claude/
 .codex/
 .cursor/

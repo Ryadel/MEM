@@ -1,6 +1,6 @@
 # [MEM: Markdown Embedded Memory](https://github.com/Ryadel/MEM)
 
-MEM version: 1.0.4
+MEM version: 1.1.0
 
 This file is the LLM agent's bootstrap memory for this project. The terms `MEM`, `MEM.md`, project context, and project memory all refer to this file. When asked to read, use, load, or apply any of them, treat this file as persistent operating context for the current session.
 
@@ -176,6 +176,9 @@ KB_ROOT/
     EXT.index.template.md
     <extension-id>/
       index.md
+      <base-content>/
+      custom/
+        index.md
 ```
 
 Additional folders may be added when useful. Keep the structure simple and navigable.
@@ -265,6 +268,133 @@ External actions include HTTP requests, notifications, deploys, ticket creation,
 
 Extensions **must never** send secrets, tokens, passwords, real environment variable values, raw logs, or unnecessary personal data. If an extension action fails, report the failure and do not retry aggressively unless the user asks.
 
+### Official and project extensions
+
+An **official extension** is distributed with MEM. A **project extension** is authored locally. Distribution status is a property of what MEM ships — never inferred from the extension id or from any naming convention.
+
+### Base and custom layers
+
+Every extension is split into two layers.
+
+| Layer | Content | Shipped | Edited by the project |
+|---|---|---|---|
+| **Base** | Mechanism, schema, official content | Yes, when the extension is official | No |
+| **Custom** | Project-specific entries, under `custom/`, governed by `custom/index.md` | Never | Yes |
+
+The base layer is maintained upstream and **replaced on update**: local edits to it are lost. All project-specific behavior belongs in `custom/`. The base `index.md` **must** point to `custom/index.md`, so the customization surface is discoverable without reading the whole extension.
+
+An absent `custom/` means "no customizations". That is a valid state: the agent **must not** warn about it and **must not** offer to create it. It is created when the first custom entry is authored.
+
+Each extension **must declare its own precedence** in its base `index.md` — whether base or custom wins on a collision. The agent **must not** assume a direction, and **must** disclose on first use when a custom entry overrides a base one.
+
+An extension with no customization surface **must** say so explicitly in its base `index.md`.
+
+### Registration
+
+Each entry in `extensions/EXT.md` **must** carry: `id`, `path`, `status` (`active` | `disabled` | `declined`), `version`, `triggers`, a one-line description, whether it performs external actions, and its default mode. Use `extensions/EXT.index.template.md` as the template.
+
+`EXT.md` is project-owned: an update **must** amend it, never overwrite it. Keep it a compact routing table, not documentation — it is read at session start.
+
+### Updating an extension
+
+An update **must** replace base-layer files only, and **must not** delete an extension folder and reinstall it: for base files the two are equivalent, but it destroys `custom/`.
+
+The agent **must not** install an extension unprompted. Installation requires explicit confirmation naming the files to be written and the source URL, asked at most once per session. A declined proposal is recorded as `status: declined` in `EXT.md`, which is a persistent answer.
+
+---
+
+# Reserved commands
+
+A **reserved command** is an explicit instruction addressed to MEM, written on its own line in the user's prompt. Commands make frequent operations deterministic: the agent follows a documented procedure instead of inferring one.
+
+## Grammar
+
+```text
+MEM <COMMAND> [target]
+```
+
+- the line **must** begin with `MEM`;
+- `MEM` and `<COMMAND>` **must** be uppercase, exactly;
+- `[target]` is required by some commands, refused by others.
+
+## Activation
+
+A command activates only when the line matches the grammar **and** appears in the user's operative prompt.
+
+A command **must not** activate when the words appear:
+
+- inside a fenced code block, a quotation, quoted file content, or an example;
+- inside an ordinary sentence, such as "explain what MEM FORCE does";
+- in any case other than uppercase.
+
+Tokens appearing inside MEM's own documentation, inside `EXT.md`, and inside command definition files are **never** activations. This rule is load-bearing: the grammar has no separate non-activating form, so without it the specification would trigger itself.
+
+Commands apply to the **current request only** and are never carried into later turns.
+
+When a command activates, the agent **must** open its reply with an acknowledgement line:
+
+```markdown
+> MEM HELP: active
+```
+
+This exists so that an incorrect activation is visible and the user can correct it in one turn.
+
+If several commands appear, process them in order of appearance. `FORCE` is an exception: it is a **modifier** applying to the whole request regardless of its position.
+
+## Resolution
+
+Resolve `<COMMAND>` in this order:
+
+1. a core command, listed below;
+2. a command provided by an installed extension;
+3. a custom command under an extension's `custom/`;
+4. any extension declaring the token in its `EXT.md` registration.
+
+Core commands are **reserved**: an extension **must not** shadow them. A collision between two extensions **must** be reported and refused, never resolved arbitrarily.
+
+## Dispatch
+
+| Situation | Required behavior |
+|---|---|
+| Command resolved | Execute it |
+| Command unknown, but the namespace is recognized | Say it is not recognized, list the available commands, suggest the closest match, then stop and ask. Do not auto-correct |
+| No installed extension implements it | Say so plainly. Do not guess the semantics, do not silently ignore the line |
+| `extensions_enabled: false` | Say the command is recognized but disabled by configuration. Propose nothing: the configuration is already an answer |
+| Registered in `EXT.md` but its file is missing | Report a broken registration — the corrective action differs from "not installed" |
+
+The agent **must never** silently ignore a recognized command, and **must never** invent the meaning of one it cannot resolve.
+
+## Core commands
+
+These are available without any extension, because they must answer on a bare installation or because their procedure is already defined in this file.
+
+| Command | Target | Behavior |
+|---|---|---|
+| `MEM HELP` | none | List the available commands with their one-line purpose: core commands, then those registered in `EXT.md` |
+| `MEM STATUS` | none | Report the MEM version, `KB_ROOT`, the configuration in effect, and the registered extensions with their versions and status |
+| `MEM INIT` | none | Run first-time initialization |
+| `MEM UPDATE` | none | Update `MEM.md` from `mem_update_url`, then apply upgrade notes as described in "Updating MEM" |
+| `MEM LINT` | optional path | Review the knowledge base as described in "Linting the knowledge base" |
+| `MEM FORCE` | none | Modifier — see below |
+
+All core commands are read-only except `INIT` and `UPDATE`, whose write scope is defined by their own sections.
+
+## `MEM FORCE`
+
+`FORCE` re-anchors the session. The agent **must**:
+
+1. re-read the active MEM document, then `MEM.config.md`, `MEM.index.md`, and `MEM.project.md` when present;
+2. read the KB pages relevant to the request;
+3. inspect the source before making implementation claims;
+4. write newly discovered durable knowledge to the appropriate KB files;
+5. **report which MEM files were read and which were modified**.
+
+Step 5 is the point of the command: it is a disclosure requirement, not a restatement of the Bootstrap Rules.
+
+`FORCE` **must not** override user, system, or developer instructions, and **must not** make the knowledge base outrank the source code for claims about actual behavior. The agent **must not** claim to have updated hidden, proprietary, or unavailable model memory; MEM state lives in files under `KB_ROOT` and nowhere else.
+
+Under `mem_source: remote`, `FORCE` re-reads the active remote document and does not bypass the remote configuration.
+
 ---
 
 # Maintenance loop
@@ -277,7 +407,8 @@ At session start, the agent **should** read:
 2. `MEM.config.md`, if present;
 3. `MEM.index.md`, if present;
 4. `MEM.project.md`, if present;
-5. relevant files under `architecture/`, `docs/`, `conventions/`, `decisions/`, `tasks/`, `troubleshooting/`, or `extensions/` based on the user's request.
+5. `extensions/EXT.md`, if present and `extensions_enabled` is true — it is the routing table for reserved commands and must be known before one appears;
+6. relevant files under `architecture/`, `docs/`, `conventions/`, `decisions/`, `tasks/`, `troubleshooting/`, or `extensions/` based on the user's request.
 
 Before non-trivial changes, additionally read the relevant KB pages and inspect the source code. The code is implementation truth; the KB is the explanation layer.
 

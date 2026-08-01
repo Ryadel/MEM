@@ -102,6 +102,10 @@ MEM uses a clear folder structure so information has a predictable place. Archit
 
 Daily logs preserve meaningful work performed during a session without storing raw conversation history. A good log captures what changed, which files were touched, what remains pending and which notes may help future sessions.
 
+### Reserved commands
+
+MEM defines a small set of commands the agent recognises when they appear on their own line in a prompt, such as `MEM HELP` or `MEM STATUS`. They make frequent operations deterministic: the agent follows a documented procedure instead of inferring one from prose.
+
 ### Remote MEM source
 
 MEM can be loaded from a remote source. In this mode, the local `MEM.md` acts as a bootstrap loader and the active operating context is fetched from a configured remote URL.
@@ -149,6 +153,9 @@ KB_ROOT/
     EXT.index.template.md
     <extension-id>/
       index.md
+      <base-content>/
+      custom/
+        index.md
 ```
 
 ## Main files and folders
@@ -208,6 +215,35 @@ Obsolete or superseded knowledge that should be preserved but no longer belongs 
 ### `extensions/`
 
 Optional Extensions. Each extension lives in its own folder and provides task-specific operating instructions.
+
+## Reserved commands
+
+A reserved command is written on its own line in the prompt:
+
+```text
+MEM <COMMAND> [target]
+```
+
+The line must start with `MEM`, and both words must be uppercase. Commands apply to the current request only.
+
+These are available without installing anything:
+
+| Command | Purpose |
+|---|---|
+| `MEM HELP` | List the available commands |
+| `MEM STATUS` | Report MEM version, `KB_ROOT`, configuration in effect, registered extensions |
+| `MEM INIT` | Run first-time initialization |
+| `MEM UPDATE` | Update `MEM.md` from `mem_update_url` and apply upgrade notes |
+| `MEM LINT` | Review the knowledge base |
+| `MEM FORCE` | Re-anchor the session and report which MEM files were read and written |
+
+`MEM FORCE` is a modifier: it applies to the whole request regardless of where it appears, and can be combined with another command.
+
+A command is recognised only when it is genuinely an instruction. Mentioning one in a sentence, quoting one, or showing one inside a code block does not trigger it — including the examples in this document. When a command does activate, the agent announces it on the first line of its reply, so an incorrect activation is visible and can be corrected immediately.
+
+If a command is recognised but nothing implements it, the agent says so. It will not guess what the command meant, and will not silently ignore the line.
+
+Extensions can add further commands. Setting `extensions_enabled: false` disables everything except the core commands above.
 
 ## Configuration
 
@@ -346,6 +382,15 @@ Each extension must live in its own folder:
 extensions/<extension-id>/index.md
 ```
 
+Every extension is split into two layers:
+
+- a **base** layer — how the extension works, plus any content MEM ships with it. It is maintained upstream and replaced when the extension is updated, so local edits to it are lost;
+- a **custom** layer under `custom/`, governed by `custom/index.md`. It is never shipped and never touched by an update, and it is where project-specific entries belong.
+
+The base layer points to `custom/index.md`, so the customisation surface is always in the same place. An extension with nothing to customise says so. An extension you have not customised simply has no `custom/` folder, which is a normal state.
+
+Each extension declares whether base or custom wins when both define the same entry, because the right answer differs by extension: shadowing a command is a hijack risk, while overriding a reference entry with local knowledge is usually correct.
+
 An agent should read Extensions when:
 
 - the user explicitly asks for extension behavior;
@@ -380,10 +425,11 @@ A MEM-aware agent should follow this workflow:
 2. read `MEM.config.md`, if present;
 3. read `MEM.index.md`, if present;
 4. read `MEM.project.md`, if present;
-5. read relevant files under `architecture/`, `docs/`, `conventions/`, `decisions/`, `tasks/`, `troubleshooting/` or `extensions/`;
-6. inspect source code before making implementation claims;
-7. perform the requested work;
-8. update the knowledge base when meaningful, durable knowledge was discovered or produced.
+5. read `extensions/EXT.md`, if present and extensions are enabled;
+6. read relevant files under `architecture/`, `docs/`, `conventions/`, `decisions/`, `tasks/`, `troubleshooting/` or `extensions/`;
+7. inspect source code before making implementation claims;
+8. perform the requested work;
+9. update the knowledge base when meaningful, durable knowledge was discovered or produced.
 
 ## When to update the knowledge base
 

@@ -16,6 +16,49 @@ Do not skip intermediate upgrade notes unless the target upgrade explicitly says
 
 Before applying an upgrade, identify the current local MEM version and the target MEM version. After applying an upgrade, update links and indexes touched by the migration.
 
+## Documented baseline
+
+**1.0.4 is the earliest documented baseline.** Upgrade notes exist from 1.0.3 onwards; there are none for
+1.0.0 through 1.0.2. A knowledge base on a base earlier than 1.0.3 should be re-initialized against the current
+MEM version rather than migrated step by step.
+
+## 1.0.4 -> 1.1.0
+
+### Summary
+
+Introduces reserved commands (`MEM <COMMAND>`), a set of core commands available without any extension, and the
+base / custom layer pattern that every extension follows. No configuration changes, and no change to how MEM is
+installed.
+
+### Required actions
+
+- Replace `MEM.md` with version 1.1.0.
+- Read `extensions/EXT.md` at session start when `extensions_enabled` is true.
+- If `extensions/EXT.md` exists, bring each entry up to the registration schema: `id`, `path`, `status`,
+  `version`, `triggers`, a one-line description, whether it performs external actions, and its default mode.
+  Amend the file; do not overwrite it.
+- If an existing extension carries project-specific content mixed into its shipped files, move that content
+  under `<extension-id>/custom/` and add `custom/index.md`.
+- State each extension's precedence — base wins or custom wins — in its base `index.md`.
+- Add a pointer from each extension's base `index.md` to its `custom/index.md`.
+- Do not create `custom/` in extensions that have no project-specific content: its absence is a valid state.
+- Check that no project documentation invites an agent to invoke a command from inside an example.
+
+### Configuration changes
+
+None.
+
+### Verification
+
+- `MEM.md` reports version 1.1.0.
+- `MEM HELP` lists the core commands.
+- `MEM STATUS` reports version, `KB_ROOT`, configuration in effect, and registered extensions.
+- A recognized command with no implementation is reported as such, neither guessed nor ignored.
+- With `extensions_enabled: false`, commands are reported as disabled by configuration.
+- Prompts without a reserved command behave as they did in 1.0.4.
+- Command tokens quoted inside documentation or examples do not activate.
+- Existing extension registrations are preserved.
+
 ## 1.0.3 -> 1.0.4
 
 ### Summary
