@@ -16,12 +16,18 @@ This file is **project-owned**: an update amends it, never overwrites it.
 - **version**: <extension version>
 - **triggers**: <commands or conditions that load this extension>
 - **external actions**: yes | no
+- **executable content**: yes | no
 - **default mode**: read-only | may-write
 - **summary**: one line
 ```
 
 `status: declined` records that an installation was proposed and refused. It is a persistent answer: honor it in
 later sessions instead of proposing again.
+
+`executable content: yes` means some of the extension's files are **run**, not read. Registering it is the
+approval for that, and it is a heavier approval than for instruction text: the files are in this repository and
+an update replaces them. Review them as code, because no rule constrains what code does — see `MEM.md`,
+"Instruction text and executable content".
 
 ## Active extensions
 

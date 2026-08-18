@@ -38,17 +38,21 @@ Related tools, and why this one is preferred.
 
 ## Installed entry
 
-Written into `custom/installed/<host>.md`, one file per host, one section per tool.
+Written into `custom/installed/<host>.md`, one file per host, one section per tool. This file is the
+extension's **bootstrap entry**: it is created at installation with the header alone, before any tool has been
+probed. A header with no tool sections is a valid, meaningful file — "this host is known, nothing probed yet".
 
 ```markdown
 # <host>
 
 - **os**: <platform and version>
+- **tools root**: <directory portable tools are unpacked into, environment-relative where possible>
+- **source control**: yes | no
 
 ## <tool>
 
 - **status**: confirmed | unavailable | declined
-- **path**: <full or environment-relative path>
+- **path**: <relative to the tools root, or environment-relative when outside it>
 - **version**: <observed version>
 - **verified**: <date>, <how — for example the output of a version flag>
 ```
@@ -57,12 +61,18 @@ Written into `custom/installed/<host>.md`, one file per host, one section per to
 
 | Field | Rule |
 |---|---|
+| `tools root` | **Asked at installation, never guessed**, and recorded once at the top. Per-tool paths are written relative to it, so a whole toolchain can be relocated by editing one line. `none` is a valid answer and means every tool comes from a platform installer or a package manager |
+| `source control` | The answer given once at installation, default `yes`. Recorded so a later session does not re-ask, and so `no` is visibly a decision rather than an oversight |
 | `status` | `unavailable` and `declined` are persistent answers. Recording absence is what stops the agent re-probing and re-asking every session |
-| `path` | Prefer `%LOCALAPPDATA%`, `%PROGRAMFILES%`, `$HOME`. A full path leaks a username and internal layout into a committed repository |
+| `path` | Under the tools root, use `<tool-id>/<version>[-<variant>][-<target>]/…` — see "Where tools live on disk". Outside it, prefer `%LOCALAPPDATA%`, `%PROGRAMFILES%`, `$HOME`: a full path leaks a username and internal layout into a committed repository |
+| `version` | The **observed** version, from the tool answering, not the one read off a folder name. The two disagree more often than expected: a folder named `8.18` can hold `8.18.4` |
 | `verified` | Availability observed on **another** host is a hint about what to try, never proof. Say so when relying on it |
 
 An installed entry **must** name a tool that exists in `catalog/` or in `custom/tools/`. Write the catalogue
 entry first if it does not.
+
+A tool installed by a platform installer — under `Program Files`, a package manager, or a store — has no
+version folder to point at and does not get one. Record its path as the installer left it and say so.
 
 ## Safety
 

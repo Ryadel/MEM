@@ -1,4 +1,4 @@
-# realesrgan-ncnn-vulkan
+# realesrgan
 
 - **kind**: cli
 - **capability**: upscale an image
@@ -8,6 +8,19 @@
 - **licence**: MIT, verified 2026-08-01 against the upstream repository. The bundled models and the ncnn runtime
   carry their own terms — check them before redistributing
 - **url**: https://github.com/xinntao/Real-ESRGAN-ncnn-vulkan
+
+## Implementations
+
+Real-ESRGAN exists as more than one distribution, and they are not interchangeable. The id here names the
+**tool**; the implementation is part of the build, so it belongs in the install path
+(`realesrgan/<version>-<implementation>-<target>/`) and in the executable name, not in the catalogue id.
+
+| Implementation | What it is | Requires |
+|---|---|---|
+| `ncnn-vulkan` (default here) | Standalone C++ port, single portable executable | A working Vulkan driver |
+| upstream Python | The reference PyTorch implementation | Python, PyTorch, and usually CUDA |
+
+The executable is named `realesrgan-ncnn-vulkan`, which is why the invocation above does not match the id.
 
 ## Notes
 

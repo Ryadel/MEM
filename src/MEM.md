@@ -1,6 +1,6 @@
 # [MEM: Markdown Embedded Memory](https://github.com/Ryadel/MEM)
 
-MEM version: 1.1.3
+MEM version: 1.1.4
 
 This file is the LLM agent's bootstrap memory for this project. The terms `MEM`, `MEM.md`, project context, and project memory all refer to this file. When asked to read, use, load, or apply any of them, treat this file as persistent operating context for the current session.
 
@@ -74,7 +74,9 @@ move_completed_tasks_to_done: true
 move_completed_troubleshooting_to_done: true
 extensions_enabled: true
 extensions_allow_external_side_effects: false
+extensions_allow_executable_content: false
 extensions_require_confirmation: true
+extensions_check_updates: true
 ask_before_large_reorganization: true
 prefer_small_incremental_updates: true
 require_source_references: true
@@ -120,7 +122,7 @@ Preserve project-specific configuration in `MEM.config.md`; do not overwrite `ME
 
 After updating `MEM.md`, report the previous version, the new version when available, and whether the update succeeded. If the update cannot be completed, leave the existing `MEM.md` unchanged and report the failure.
 
-Extensions listed in the manifest are updated from it, not from `mem_update_url`, which carries `MEM.md` alone. Updating `MEM.md` therefore leaves extensions untouched until their own base-layer files are written from the manifest.
+Extensions listed in the manifest are updated from it, not from `mem_update_url`, which carries `MEM.md` alone. Updating `MEM.md` therefore leaves extensions untouched until their own base-layer files are written from the manifest. Their versions are checked separately — see "Checking extension versions".
 
 After a successful update, the agent **should** check `MEM.upgrade.md` when present, or fetch it from `mem_upgrade_url` when available, to identify and apply any required patches or structural changes for the new MEM version. Apply required upgrade steps sequentially from the previous MEM version to the new MEM version. For `MAJOR.MINOR.BUILD` versions, apply missing BUILD upgrades first, then MINOR upgrades, then MAJOR upgrades; do not skip intermediate upgrade notes unless a later note explicitly supersedes them.
 
@@ -137,6 +139,33 @@ Allowed statuses are:
 - `succeeded` — the local `MEM.md` was updated;
 - `up-to-date` — the update was attempted, but no change was needed;
 - `failed` — the update was attempted but could not be completed; include a short reason and leave the existing `MEM.md` unchanged.
+
+## Checking extension versions
+
+Updating `MEM.md` says nothing about the extensions installed beside it. An installation can therefore run a current core against a base layer published months earlier, and nothing surfaces the gap. The check below closes it.
+
+If `extensions_check_updates: true`, then whenever `MEM.md` is updated — by `MEM UPDATE` or by the auto-update above — the agent **must** also compare, for every extension registered in `EXT.md` with `status: active`:
+
+- the **installed** version, read from that extension's base `index.md`;
+- the **available** version, read from the manifest entry for the same id.
+
+The two sources are not interchangeable. The installed version is authoritative about what is on disk **because the base layer is written by the update**, so it cannot drift from the files it describes. `EXT.md` carries a copy for routing and reporting; when it disagrees with the extension's `index.md`, the `index.md` wins and the agent **should** correct `EXT.md`. The manifest is authoritative only about what is *available*.
+
+The check **reports and proposes; it never installs.** Being listed in the manifest is not authorization — see "Authorization" — and a version gap is not authorization either. Applying an extension update is an acquiring operation and needs explicit approval naming the files and the source URL.
+
+An extension absent from the manifest, or installed from another source, is **not** reported as outdated: there is nothing to compare it against. Say that its version could not be checked rather than implying it is current.
+
+If the manifest cannot be fetched, report that extension versions could not be checked. Do not infer that they are current.
+
+When a new daily log is created and one or more extensions are behind, add one line per extension after the MEM auto-update line:
+
+```markdown
+> Extension update available: `mem-toolbox` 1.0.0 -> 1.0.1 (manifest). Not applied; approval required.
+```
+
+Ask at most once per session, and honor a refusal for the rest of it. A permanently unwanted update is recorded by setting that extension's `status` in `EXT.md`, which is a persistent answer.
+
+When `extensions_enabled` is false, the agent **must not** run this check: the configuration is already an answer.
 
 ## Compression principle
 
@@ -284,13 +313,21 @@ The base layer is maintained upstream and **replaced on update**: local edits to
 
 An absent `custom/` means "no customizations". That is a valid state: the agent **must not** warn about it and **must not** offer to create it. It is created when the first custom entry is authored.
 
+An extension **may** declare a single **bootstrap entry** in its base `index.md`: a file under its own `custom/` created at installation, and re-created on any environment where it is missing. This is the one exception to the rule above, and it exists for data an agent would otherwise have nowhere obvious to put — with the predictable result that it puts it in the wrong layer. An extension declaring one **must** name the exact path, say why lazy creation does not serve it, and keep the file useful when empty. Everything else under `custom/` stays lazy.
+
 Each extension **must declare its own precedence** in its base `index.md` — whether base or custom wins on a collision. The agent **must not** assume a direction, and **must** disclose on first use when a custom entry overrides a base one.
 
 An extension with no customization surface **must** say so explicitly in its base `index.md`.
 
 ### Registration
 
-Each entry in `extensions/EXT.md` **must** carry: `id`, `path`, `status` (`active` | `disabled` | `declined`), `version`, `triggers`, a one-line description, whether it performs external actions, and its default mode. Use `extensions/EXT.index.template.md` as the template.
+Each entry in `extensions/EXT.md` **must** carry: `id`, `path`, `status` (`active` | `disabled` | `declined`), `version`, `triggers`, a one-line description, whether it performs external actions, whether it ships executable content, and its default mode. Use `extensions/EXT.index.template.md` as the template.
+
+Every extension **must** declare its own version in its base `index.md`. The `version` in `EXT.md` is a copy of it, kept for routing and reporting; the `index.md` is authoritative when the two disagree. See "Checking extension versions".
+
+An extension that accepts subcommands **must** declare the closed set in its base `index.md` — see "Subcommands".
+
+An extension that adds configuration options to `MEM.config.md` **must** name them `extensions_<id>_<option>`, where `<id>` is its extension id with hyphens replaced by underscores. The prefix is what keeps a project-authored extension from colliding with a future core option, and the collision it prevents is one nobody can detect in advance.
 
 `EXT.md` is project-owned: an update **must** amend it, never overwrite it. Keep it a compact routing table, not documentation — it is read at session start.
 
@@ -311,7 +348,24 @@ The manifest governs **proposals**, never execution:
 - the agent **must not** propose or install from any other source unless the user names it explicitly, and the confirmation **must** display that source;
 - an extension absent from the manifest is not illegitimate. Project-authored extensions and everything under `custom/` are the intended customization surface: they receive no automatic proposal and no inherited trust, but they are not second-class once registered.
 
-Whatever its origin, an extension is **stored instruction text**. It is reviewed like any repository content, it **must not** grant itself permissions that `MEM.config.md` denies, and it remains subordinate to user instructions, `MEM.md`, and `MEM.config.md`.
+### Instruction text and executable content
+
+An extension ships one or both of two kinds of content, and they are governed differently because they are enforced differently.
+
+**Instruction text** — Markdown an agent reads and chooses whether to follow. The agent is the point of enforcement. Whatever its origin, instruction text is reviewed like any repository content, it **must not** grant itself permissions that `MEM.config.md` denies, and it remains subordinate to user instructions, `MEM.md`, and `MEM.config.md`.
+
+**Executable content** — files a process runs: a script, a program, anything not read as instructions. **There is no point of enforcement.** Code does what it does; a rule telling it not to exceed its permissions constrains nothing. Stating otherwise would be a guarantee MEM cannot keep.
+
+An extension shipping executable content **must** declare `executable content: yes` in its manifest entry and in its `EXT.md` registration, and:
+
+- installing it **must** require approval that names the executable files **as executable**, distinctly from the rest. Approving Markdown and approving code are not the same act, and one confirmation covering both silently converts the first into the second;
+- updating it carries the same requirement. An update writes the manifest paths, so it **replaces code already in the repository**;
+- the obligation on the *reader* replaces the guarantee. Executable content **must** be small enough to review, and reviewing it before approval is the only control that exists;
+- it **must not** load or execute code supplied by the project it is installed into. Project-owned definitions under `custom/` are data — declarative files and argument vectors — never a plugin surface.
+
+The compensating property, and the reason this is admissible at all: executable content delivered this way is **committed to the consuming repository**, so an update appears as a reviewable diff in a pull request rather than as an opaque package version.
+
+When `extensions_allow_executable_content` is false, the agent **must not** propose installing an extension that declares executable content, and **must not** run the executable content of one already installed. The default is `false`.
 
 #### Approval or disclosure
 
@@ -361,12 +415,32 @@ A **reserved command** is an explicit instruction addressed to MEM, written on i
 ## Grammar
 
 ```text
-MEM <COMMAND> [target]
+MEM <COMMAND> [<SUBCOMMAND>] [target]
 ```
 
 - the line **must** begin with `MEM`;
-- `MEM` and `<COMMAND>` **must** be uppercase, exactly;
+- `MEM`, `<COMMAND>` and `<SUBCOMMAND>` **must** be uppercase, exactly;
 - `[target]` is required by some commands, refused by others.
+
+### Subcommands
+
+A command **may** accept subcommands. They are optional, and most commands have none.
+
+An extension providing them **must** declare a **closed set** in its base `index.md`. The set is data, not
+convention: the agent resolves against the declared list and nothing else, so a token that is not in it is not a
+subcommand.
+
+Resolution of the token after the command:
+
+1. it matches a declared subcommand of that command → it **is** the subcommand;
+2. otherwise → it is the target.
+
+That order makes a subcommand shadow a same-named target, which is why the escape exists: **a target beginning
+with `./` is always a target**. `MEM CLEAN ./STATUS` operates on the file named `STATUS`.
+
+Core commands declare no subcommands, and an extension **must not** add one to a core command. Subcommands are
+positional and scoped to their command — unlike `FORCE`, which is a **modifier** applying to the whole request
+regardless of position. The two are different mechanisms and the words are not interchangeable.
 
 ## Activation
 
@@ -422,9 +496,9 @@ These are available without any extension, because they must answer on a bare in
 | Command | Target | Behavior |
 |---|---|---|
 | `MEM HELP` | none | List the available commands with their one-line purpose: core commands, then those registered in `EXT.md` |
-| `MEM STATUS` | none | Report the MEM version, `KB_ROOT`, the configuration in effect, and the registered extensions with their versions and status |
+| `MEM STATUS` | none | Report the MEM version, `KB_ROOT`, the configuration in effect, and the registered extensions with their status and both versions — installed, and available per the manifest |
 | `MEM INIT` | none | Run first-time initialization |
-| `MEM UPDATE` | none | Update `MEM.md` from `mem_update_url`, then apply upgrade notes as described in "Updating MEM" |
+| `MEM UPDATE` | none | Update `MEM.md` from `mem_update_url`, apply upgrade notes, then check extension versions — all as described in "Updating MEM" and "Checking extension versions" |
 | `MEM LINT` | optional path | Review the knowledge base as described in "Linting the knowledge base" |
 | `MEM FORCE` | none | Modifier — see below |
 

@@ -4,6 +4,73 @@ All notable MEM changes are documented in this file.
 
 MEM uses `MAJOR.MINOR.BUILD` versioning. Version-to-version migration steps are documented in [MEM.upgrade.md](MEM.upgrade.md).
 
+## 1.1.4 - 2026-08-17
+
+### Added
+
+- Added **executable content** as a declared, separately approved kind of extension file. An extension whose
+  base files are *run* rather than read declares `executable content: yes`; installing or updating it requires
+  approval naming those files as executable, and `extensions_allow_executable_content` — default `false` —
+  gates it entirely.
+- Added `extensions_allow_executable_content: false`.
+- Added **subcommands** to the command grammar: `MEM <COMMAND> [<SUBCOMMAND>] [target]`. An extension declares a
+  closed set in its base `index.md`; a token outside that set is a target, and a target beginning with `./` is
+  always a target. Core commands declare none, and an extension may not add one to a core command.
+- Added a naming rule for extension configuration options: `extensions_<id>_<option>`, so a project-authored
+  extension cannot collide with a future core option.
+- Added extension version checking. Every `MEM.md` update now also compares each installed extension's declared
+  version against the version the manifest offers, and reports the gap in the daily log and in `MEM STATUS`.
+- Added `extensions_check_updates: true`, which governs that check.
+- Added the **bootstrap entry**: an extension may declare one file under its own `custom/` that is created at
+  installation rather than on first write. It is the single exception to "an absent `custom/` is normal".
+- Added `ffmpeg` to the `mem-toolbox` catalogue, with transcoding, frame extraction, audio-track work and media
+  inspection. The catalogue's scope widens from image processing to media processing.
+- Added a tools-directory convention to `mem-toolbox`: `<tool-id>/<version>[-<variant>][-<target>]/`, so the
+  tool name is what you scan for and several builds of one tool coexist.
+
+### Changed
+
+- `mem-toolbox` is now 1.0.1. Its per-host file `custom/installed/<host>.md` is its bootstrap entry: created at
+  installation with host, OS and tools root, before any tool has been probed.
+- `mem-toolbox` now asks two questions at installation and records both in the host file: **where portable tools
+  live on this host** (`tools root`, never guessed, `none` a valid answer) and whether `custom/installed/` is
+  kept under source control. The source-control default is unchanged — yes, committed — but it is now an
+  explicit question rather than a silent default.
+- Knowing the tools root lets an installation proposal name the exact directory an archive should be unpacked
+  into, instead of only naming a tool. It remains a sentence in a proposal: the agent still never downloads,
+  unpacks, moves or deletes anything under that root.
+- Renamed the catalogue entry `realesrgan-ncnn-vulkan` to `realesrgan`. The id names the tool; `ncnn-vulkan` is
+  one implementation of it and belongs to the build path, not to the catalogue id.
+- The installed-entry schema gains `tools root` and `source control`, and `version` now explicitly means the
+  version the tool *reported*, not the one written on its folder.
+- `EXT.md`'s `version` is now formally a copy: an extension's base `index.md` is authoritative when the two
+  disagree.
+
+### Compatibility
+
+- **The definition of an extension changed.** "An extension is stored instruction text… it must not grant
+  itself permissions that `MEM.config.md` denies" now applies to instruction text only, and says so. For
+  executable content the specification states plainly that there is no enforcement point, and replaces the
+  guarantee with a review obligation: such content must be small enough to review. Extending the old sentence
+  to cover code would have left a promise nothing could keep.
+- Executable content is delivered **into the consuming repository**, so an extension update arrives as a
+  reviewable diff rather than an opaque package version. That is the property the mechanism trades for.
+- Projects that do not set `extensions_allow_executable_content: true` see no change: no such extension is
+  proposed, and none is run.
+- Subcommands are **positional and command-scoped**, unlike `MEM FORCE`, which remains a modifier applying to
+  the whole request regardless of position. The two mechanisms are distinct and the terms are not synonyms.
+- The grammar change is backwards compatible: a command with no declared subcommands parses exactly as before,
+  and every existing invocation keeps its meaning.
+- The version check **reports and proposes; it never installs**. A version gap is not authorization, for the
+  same reason that being listed in the manifest is not authorization.
+- An extension absent from the manifest is reported as *unchecked*, never as outdated. If the manifest cannot be
+  fetched, MEM says versions could not be checked rather than assuming they are current.
+- `extensions_enabled: false` suppresses the check entirely.
+- One configuration option was added; none was removed or renamed.
+- Renaming a catalogue entry is a file rename in a base layer, and an update **writes** the manifest paths
+  without deleting anything. Installations upgrading from 1.1.3 keep the orphaned
+  `catalog/realesrgan-ncnn-vulkan.md` until it is removed by hand. See `MEM.upgrade.md`.
+
 ## 1.1.3 - 2026-08-01
 
 ### Added

@@ -12,13 +12,23 @@ Desktop.ini
 *.userosscache
 *.sln.docstates
 
-# Local AI assistant/tooling state
-/dev/
+# Local tooling
 .claude/
 .codex/
 .cursor/
 .windsurf/
 .aider*
+
+# The private repo lives in a sibling folder, never inside this one. These
+# entries are a safety net, not the privacy mechanism: if any of them ever
+# appears here it means something has been copied into the wrong repository,
+# and being ignored is the safe outcome — private notes must not reach a
+# public remote. See MEM.Dev conventions/three-repository-layout.md.
+# The wiki folder is deliberately NOT listed: its pages are publishable, so a
+# stray wiki/ here should surface in git status rather than go silent.
+private/
+dev/
+MEM.Dev.slnx
 
 # Build output
 bin/
@@ -30,6 +40,14 @@ Debug/
 Release/
 x64/
 x86/
+
+# Python — the mem-cleaner runner ships as source under src/, so bytecode and
+# test caches appear wherever it runs. The sources themselves are tracked.
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
 
 # Dependencies and package caches
 node_modules/

@@ -22,6 +22,72 @@ Before applying an upgrade, identify the current local MEM version and the targe
 1.0.0 through 1.0.2. A knowledge base on a base earlier than 1.0.3 should be re-initialized against the current
 MEM version rather than migrated step by step.
 
+## 1.1.3 -> 1.1.4
+
+### Summary
+
+The command grammar gains optional **subcommands**, declared as a closed set by the extension that provides
+them. Extension versions are now checked whenever `MEM.md` is updated, and reported rather than applied.
+Extensions may declare a **bootstrap entry**, one file under their own `custom/` created at installation.
+`mem-toolbox`
+goes to 1.0.1: it uses that mechanism for its per-host file, asks where tools live and whether that folder is
+committed, adds a
+tools-directory convention, gains `ffmpeg`, and renames one catalogue entry.
+
+### Required actions
+
+- Replace `MEM.md` with version 1.1.4.
+- Add `extensions_check_updates: true` to `MEM.config.md` if that file pins extension options explicitly.
+  Omitting it is fine: the default is `true`.
+- **`extensions_allow_executable_content` defaults to `false`, and no action is needed to stay safe.** An
+  extension may now declare that some of its base files are run rather than read. None is installed in your
+  project today, none will be proposed while this option is false, and no existing extension declares it.
+  Set it to `true` only after reading the executable files of the extension you are about to install: the
+  specification no longer claims MEM can constrain what code does, because it cannot.
+- **No action is required for the grammar change.** A command with no declared subcommands parses exactly as
+  before. If a project-authored extension already documents a second uppercase token, declare that set in its
+  base `index.md` so it resolves as a subcommand rather than as a target.
+- If a project-authored extension adds options to `MEM.config.md`, rename them to `extensions_<id>_<option>`.
+  Nothing enforces this and no shipped extension is affected, but an unprefixed option can be shadowed by a
+  future core key.
+- For each extension registered in `EXT.md`, confirm its `version` matches the version declared in that
+  extension's own `index.md`. From 1.1.4 the `index.md` is authoritative and `EXT.md` is a copy; correct
+  `EXT.md` where they differ.
+- If `mem-toolbox` is installed, update it to 1.0.1 from the manifest, then:
+  - **delete `extensions/mem-toolbox/catalog/realesrgan-ncnn-vulkan.md` by hand.** It was renamed to
+    `realesrgan.md`. An update writes the manifest paths and never deletes, so the old file survives the update
+    and would otherwise remain as a second, stale entry for the same tool;
+  - update any `custom/index.md` row or `custom/installed/<host>.md` section naming
+    `realesrgan-ncnn-vulkan` to `realesrgan`. The executable keeps its own name — only the catalogue id changed;
+  - create `custom/installed/<host>.md` for the current host if it is missing. It is now a bootstrap entry and
+    is expected to exist before any tool is looked up;
+  - answer the **tools root** question and record it. The agent asks where portable tools live on this host and
+    must not guess; `none` is a valid answer, meaning every tool comes from a platform installer or a package
+    manager. On an existing installation the answer can usually be read off the paths already recorded — confirm
+    it rather than inferring it silently;
+  - answer the source-control question for `custom/installed/` and record it in the host file. **The default is
+    unchanged, `yes`.** Nothing is gitignored by this upgrade; if the project already gitignored that folder,
+    record `source control: no` so the choice is visible rather than inferred.
+- Existing tool folders are **not** rearranged by this upgrade. The `<tool-id>/<version>/` convention describes
+  where new installs should land; reorganising an existing tools directory is proposed to the user, never done
+  automatically, and `PATH` is checked first.
+
+### Configuration changes
+
+- Added `extensions_check_updates` (default `true`). Set it to `false` to suppress the check.
+- Added `extensions_allow_executable_content` (default `false`). Leave it false unless you deliberately want
+  extensions that ship code.
+- No option was removed or renamed.
+
+### Verification
+
+- `MEM.md` reports version 1.1.4.
+- `MEM STATUS` lists each extension with both an installed and an available version.
+- Creating a new daily log reports any extension behind the manifest, and changes no extension file.
+- An extension not present in the manifest is reported as unchecked, not as outdated.
+- `extensions/mem-toolbox/catalog/` contains `realesrgan.md` and **not** `realesrgan-ncnn-vulkan.md`.
+- `custom/installed/<host>.md` exists for the current host and carries `tools root` and `source control`.
+
 ## 1.1.2 -> 1.1.3
 
 ### Summary

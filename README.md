@@ -221,10 +221,15 @@ Optional Extensions. Each extension lives in its own folder and provides task-sp
 A reserved command is written on its own line in the prompt:
 
 ```text
-MEM <COMMAND> [target]
+MEM <COMMAND> [<SUBCOMMAND>] [target]
 ```
 
-The line must start with `MEM`, and both words must be uppercase. Commands apply to the current request only.
+The line must start with `MEM`, and every keyword must be uppercase. Commands apply to the current request only.
+
+Subcommands are optional and most commands have none. An extension that offers them lists the exact set it
+accepts, so a token outside that list is read as a target rather than guessed at — and if you need to act on a
+file whose name happens to match a subcommand, `./NAME` always means the file. Core commands have no
+subcommands, and an extension cannot add one to them.
 
 These are available without installing anything:
 
@@ -313,7 +318,9 @@ move_completed_troubleshooting_to_done: true
 
 extensions_enabled: true
 extensions_allow_external_side_effects: false
+extensions_allow_executable_content: false
 extensions_require_confirmation: true
+extensions_check_updates: true
 
 ask_before_large_reorganization: true
 prefer_small_incremental_updates: true
@@ -432,6 +439,24 @@ That splits cleanly into two behaviours:
 - **using** an extension you already registered needs disclosure, not another prompt. The agent names it on the acknowledgement line, and says when an extension is one you wrote rather than one MEM distributes.
 
 An extension outside the manifest is perfectly legitimate — writing your own is the point of the custom layer. It simply gets no automatic offer to install and no borrowed trust.
+
+### Keeping extensions current
+
+Updating `MEM.md` updates the core and nothing else, so an installation can quietly end up running a current core against a base layer published months ago. With `extensions_check_updates: true`, every update also compares the version each installed extension declares against the version the manifest offers, and tells you which ones are behind — as a line in the daily log, and in `MEM STATUS` alongside the installed version.
+
+It reports and offers; it never updates an extension on its own. A version gap is not permission, for the same reason being listed in the manifest is not permission. Extensions you wrote yourself are simply reported as unchecked: there is nothing to compare them against, and MEM says so rather than implying they are current.
+
+An extension may also declare a **bootstrap entry**: one file under its own `custom/` that is created when the extension is installed, instead of the first time it has something to write. It exists for data an agent would otherwise have nowhere obvious to put — `mem-toolbox` uses it for the per-host file that records where your tools actually are — and it is the single exception to "an empty `custom/` is normal".
+
+### Extensions that ship code
+
+Almost everything MEM distributes is Markdown an agent reads. Some extensions need more than that — `mem-cleaner` needs a small program to replace files transactionally, because an agent in a conversation cannot promise to still be there to finish a rollback.
+
+Such an extension must declare `executable content: yes`, and MEM treats it differently in three ways. It is not offered at all unless you set `extensions_allow_executable_content: true`, which is **off by default**. Installing it asks for approval that names the executable files as executable, separately from the rest — approving documentation and approving code are not the same decision. And updating it asks again, because an update replaces code already in your repository.
+
+MEM does not pretend to sandbox that code. The rule that an extension "cannot grant itself permissions your configuration denies" describes something an agent can honour and a program cannot, and saying otherwise would be a guarantee nothing behind it can keep. What you get instead is the thing a package manager cannot give you: the code lives in your repository, so an update arrives as a diff you can read in a pull request — which is only meaningful if it stays small enough to actually read, and that is a constraint on MEM, not on you.
+
+The core itself is unchanged by this. It still needs no runtime and no dependencies; extensions are optional, and that is exactly what keeps the promise true rather than making it an exception.
 
 An agent should read Extensions when:
 
