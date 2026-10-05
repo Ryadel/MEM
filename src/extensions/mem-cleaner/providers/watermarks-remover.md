@@ -1,7 +1,7 @@
 ---
 schema: provider/1
 id: watermarks-remover
-version: 1
+version: 2
 license: MIT
 locality: local
 
@@ -21,6 +21,31 @@ operations:
     deterministic: true
     chainable: true
     regions: any
+
+  rewrite:
+    role: transform
+    capability: statistical-rewrite
+    deterministic: false
+    chainable: false
+    regions: prose
+    args:
+      - "${workspace}/service/scripts/rewrite_text.py"
+      - "${input}"
+      - "-o"
+      - "${output}"
+      - "--backend"
+      - "ollama"
+      - "--base-url"
+      - "http://127.0.0.1:11434"
+      - "--model"
+      - "${model}"
+      - "--strength"
+      - "paraphrase"
+      - "--temperature"
+      - "0.3"
+      - "--timeout"
+      - "240"
+      - "--json-stats"
 ---
 
 # watermarks-remover
@@ -34,9 +59,25 @@ Unicode carriers — zero-width characters, bidi controls, tag characters — an
   core, the same constraint this runner works under.
 - **Probed against**: v0.5.0, on 2026-08-18. The measurements are in the knowledge base, not here.
 
-## Why only `unicode`
+## Two operations, two different promises
 
-Upstream offers three layers. Only the first ships as a capability here, and each omission has a reason:
+`unicode` deletes bytes and `rewrite` reformulates sentences. They share an upstream project and nothing else,
+which is why the second carries its own argument vector: `clean_text.py` and `rewrite_text.py` are separate
+programs, and pretending one vector fits both would have meant two provider ids for one tool.
+
+| | `unicode` | `rewrite` |
+|---|---|---|
+| Capability | `unicode` | `statistical-rewrite` |
+| Removes | invisible carriers, byte by byte | statistical marks, by rewording |
+| `deterministic` | `true` | **`false`** |
+| `chainable` | `true` | **`false`** — a second rewrite would compound the drift |
+| Regions | `any`, narrowed by the pipeline | **`prose` in the definition**, so no pipeline can widen it |
+| Needs | nothing beyond Python | a model on this host, and `extensions_cleaner_rewrite_model` naming it |
+| Validation it forces | whatever its scope demands | **`tests`, always** — see below |
+
+## Why only `unicode` in the default profile
+
+Upstream offers three layers. Only the first ships in `safe`, and each omission has a reason:
 
 | Upstream | Why not in 1.0 |
 |---|---|
@@ -79,6 +120,58 @@ Quoted rather than inferred, from the project's own skill documentation:
 
 The last one is this extension's own rule arriving from the other direction: **removal is not proof of
 absence.** Report what was removed, never what remains.
+
+## The rewrite operation
+
+### It is local, and the definition is what makes that true
+
+The vector pins `--backend ollama` and `--base-url http://127.0.0.1:11434`, and it never passes
+`--allow-remote`. Upstream's other two backends are `print-prompt`, which prints a prompt instead of rewriting,
+and `openai-compatible`, which is how the tool reaches an API. Neither belongs here at 1.0.
+
+That is not left to good manners. The runner refuses, **at definition load**, any vector naming a non-loopback
+host or passing `--allow-remote` — so a project that edits this file to point somewhere else gets a refusal
+with the host named, not a run. Loopback is what keeps this inside the rule that no file content leaves the
+machine: nothing crosses the network interface.
+
+### The model is configuration, not definition
+
+`${model}` is substituted from `extensions_cleaner_rewrite_model`. Which model a host has pulled is a fact
+about that host, so a definition naming one would be wrong on every machine that chose differently. With no
+model configured the stage **refuses and names the setting**; it does not fall back to a default, because a
+rewrite by an unintended model is exactly the outcome worth refusing.
+
+### Temperature 0.3, deliberately below upstream's 0.9
+
+Upstream defaults high for candidate diversity, which suits a tool whose goal is to defeat a detector. The goal
+here is a file the author still recognises, so the vector pins it low. The cost is stated rather than hidden: a
+low temperature removes less of a statistical watermark. This profile prefers a faithful file over a thorough
+scrub, and *"removal is not proof of absence"* applies with more force here than anywhere else in this
+extension.
+
+### Layer A runs on the model output, and that is left on
+
+Upstream scrubs invisible Unicode from what the model returns unless `--no-layer-a-after` is passed. The flag
+is not passed. A model can emit zero-width characters of its own, and catching them at the source is cheaper
+than explaining them later.
+
+### It always escalates validation to `tests`
+
+A rewrite is bound to `regions: prose`, and for a deterministic stage that scope would demand only `syntax`.
+That is not honest for a rewrite: reformulated prose parses perfectly. A docstring is reachable as `__doc__`
+and executed by doctest, and a comment can carry a directive — both survive rewording without a syntax error
+and with different behaviour. So the runner escalates on **determinism** rather than on region, and a
+non-deterministic stage demands `tests` wherever it stayed.
+
+A project with no test command therefore cannot run this stage at all. That is the intended answer: an
+escalation that cannot be satisfied is a refusal, not a downgrade.
+
+### It never runs unattended
+
+`statistical-rewrite` is a restricted capability, so it requires an explicitly named target and never runs over
+a session's record or a glob. Upstream states the reason better than this page could: rewriting *"flattens
+tone, voice, and precision"* by substituting the model's word choices for the author's. That is an argument for
+keeping it out of automatic mode permanently, not only until it is implemented.
 
 ## Installation
 

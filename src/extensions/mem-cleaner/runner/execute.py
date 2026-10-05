@@ -32,7 +32,19 @@ DEFAULT_TIMEOUT = 300
 # hardcoded `python3` would be wrong on Windows, where that name frequently
 # does not exist or resolves to a store stub -- and the one interpreter certain
 # to exist is the one already executing.
-VARIABLES = ("input", "output", "workspace", "language", "agent", "pipeline", "python")
+# `model` is supplied by configuration rather than by the definition, because
+# which model a host has pulled is a fact about that host. A definition naming
+# one would be wrong on every machine that chose differently.
+VARIABLES = (
+    "input",
+    "output",
+    "workspace",
+    "language",
+    "agent",
+    "pipeline",
+    "python",
+    "model",
+)
 
 
 class StageError(RuntimeError):
@@ -48,7 +60,9 @@ class StageResult:
         self.report = report
 
 
-def run_stage(provider, operation, stage, data, path, workspace, timeout=DEFAULT_TIMEOUT):
+def run_stage(
+    provider, operation, stage, data, path, workspace, timeout=DEFAULT_TIMEOUT, variables=None
+):
     """Apply one stage to `data`, returning the new bytes.
 
     `data` is the content so far, not necessarily the file on disk: stages
@@ -66,7 +80,11 @@ def run_stage(provider, operation, stage, data, path, workspace, timeout=DEFAULT
     if not spans:
         return StageResult(path, data, False, "no %s region in this file" % scope)
 
-    cleaned, report = _invoke(provider, operation, payload, workspace, timeout)
+    cleaned, report = _invoke(provider, operation, payload, workspace, timeout, variables)
+
+    cleaned, trimmed = _restore_edges(payload, cleaned)
+    if trimmed:
+        report = ("span edges restored: the provider returned it trimmed. " + report).strip()
 
     # reinsert copies every out-of-scope byte verbatim and asserts that it did,
     # which is an exact check. `verify` is deliberately not used here: its diff
@@ -82,9 +100,44 @@ def run_stage(provider, operation, stage, data, path, workspace, timeout=DEFAULT
     return StageResult(path, result, result != data, "", report)
 
 
-def _invoke(provider, operation, payload, workspace, timeout):
+def _restore_edges(payload, result):
+    """Give the result back the payload's own leading and trailing whitespace.
+
+    Where a span starts and ends is the runner's decision: it extracted those
+    bytes and it will splice them back. A provider that trims the edges has
+    changed the span's *extent* rather than its content, and reinserting the
+    shortened span would move bytes the stage never claimed to touch.
+
+    This is not hypothetical. A chat response arrives stripped -- upstream's
+    ollama backend returns `content.strip()` -- so a rewrite whose span reaches
+    the end of the file deletes the file's terminating newline every time.
+    Minimum validation catches that and restores the file, which is correct and
+    useless: the stage could never once succeed.
+
+    Only ASCII whitespace is restored, and the content between the edges is
+    whatever the provider returned. An invisible character sitting at the edge
+    is not whitespace, so a provider that removed it keeps that removal.
+
+    Returns (result, trimmed) so a caller can report the compensation rather
+    than apply it silently.
+    """
+    lead = payload[: len(payload) - len(payload.lstrip())]
+    trail = payload[len(payload.rstrip()) :]
+    core = result.strip()
+
+    # An empty result is a failure for validation to state plainly, not
+    # something to pad back into looking like a file.
+    if not core:
+        return result, False
+
+    restored = lead + core + trail
+    return restored, restored != result
+
+
+def _invoke(provider, operation, payload, workspace, timeout, variables=None):
     """Write the payload, run the provider's argv, read the result back."""
-    if not provider.command:
+    command, declared = provider.invocation(operation)
+    if not command:
         raise StageError("provider %r declares no command" % provider.id)
 
     handle, in_path = tempfile.mkstemp(prefix="mem-cleaner-in-")
@@ -97,8 +150,8 @@ def _invoke(provider, operation, payload, workspace, timeout):
             stream.write(payload)
 
         argv = [
-            _substitute(argument, in_path, out_path, workspace, operation)
-            for argument in [provider.command] + list(provider.args)
+            _substitute(argument, in_path, out_path, workspace, operation, variables)
+            for argument in [command] + declared
         ]
 
         try:
@@ -140,7 +193,7 @@ def _invoke(provider, operation, payload, workspace, timeout):
                 pass
 
 
-def _substitute(argument, in_path, out_path, workspace, operation):
+def _substitute(argument, in_path, out_path, workspace, operation, variables=None):
     """Replace ${...} in one argument. The result is always one argument."""
     values = {
         "input": in_path,
@@ -150,7 +203,21 @@ def _substitute(argument, in_path, out_path, workspace, operation):
         "agent": "mem-cleaner",
         "pipeline": operation.name,
         "python": sys.executable,
+        "model": "",
     }
+    for name, value in (variables or {}).items():
+        if name in VARIABLES and value:
+            values[name] = str(value)
+
+    # A variable nothing supplies would otherwise substitute to an empty string
+    # and be passed as an empty argument, which the provider reads as a value it
+    # was given rather than one it is missing. Refusing names the setting.
+    if "${model}" in argument and not values["model"]:
+        raise StageError(
+            "operation %r needs a model and none is configured; set "
+            "extensions_cleaner_rewrite_model" % operation.name
+        )
+
     result = argument
     for name in VARIABLES:
         result = result.replace("${%s}" % name, values[name])

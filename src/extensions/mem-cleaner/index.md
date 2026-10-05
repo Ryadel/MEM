@@ -167,10 +167,16 @@ extensions_cleaner_include: []
 extensions_cleaner_exclude: []
 extensions_cleaner_update_daily_log: false
 
+extensions_cleaner_rewrite_model: null
 extensions_cleaner_format_command: null
 extensions_cleaner_project_root: ".."
 extensions_cleaner_validation_timeout: 600
 ```
+
+`extensions_cleaner_rewrite_model` names the local model a rewrite stage drives — `llama3.1:8b`, say. There is
+no default and none is invented: which model a host has pulled is a fact about that host, and a rewrite by an
+unintended model is exactly the outcome worth refusing. With the setting absent, a rewrite stage refuses and
+names it. Every other pipeline is unaffected, because only a rewrite stage reads it.
 
 `extensions_cleaner_project_root` is where validation commands run, relative to `KB_ROOT`. The default `..` is
 right for the common `<project>/MEM/` layout and wrong for anything else, so `MEM CLEAN STATUS` prints the

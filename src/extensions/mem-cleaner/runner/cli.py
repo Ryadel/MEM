@@ -173,11 +173,14 @@ def cmd_status(args, cfg):
 def cmd_providers(args, cfg):
     registry = registry_module.load(cfg.extension_root)
     if not len(registry):
-        print("No providers are defined.")
-        print("")
-        print("This is expected at 0.1.0: the transaction core, the region")
-        print("classifier and the validation layer ship before anything that")
-        print("can alter a file.")
+        # A provider ships, so an empty registry is a failure rather than the
+        # state this extension started in. Saying which it is matters: the
+        # reason is printed below, and a reassuring line above it would be read
+        # first and believed.
+        if registry.problems:
+            print("No provider could be loaded; every definition was refused.")
+        else:
+            print("No providers are defined.")
     for provider in registry.all():
         print("%s" % provider.id)
         print("  source      %s" % provider.source)
@@ -195,7 +198,10 @@ def cmd_providers(args, cfg):
             )
         print("")
     _report_problems(registry.problems)
-    return EXIT_OK
+    # A refused definition is not a successful listing. Reporting it and then
+    # exiting 0 would let a caller act on a registry that is missing whatever
+    # was refused.
+    return EXIT_REFUSED if registry.problems else EXIT_OK
 
 
 def cmd_pipelines(args, cfg):
@@ -385,6 +391,14 @@ def cmd_forget(args, cfg):
 # change is inside the scope, so the scope is enough to decide -- no diff needed.
 _SCOPE_DEMANDS = {"prose": "syntax", "runtime": "tests", "any": "tests"}
 
+# What a non-deterministic stage demands regardless of where it stayed. A
+# rewrite reformulates the prose it was handed, and staying inside `prose`
+# says only that no code was touched -- not that the meaning survived. A
+# docstring is reachable as __doc__ and executed by doctest, and a comment can
+# carry a directive; both parse identically after being reworded. So determinism,
+# not region, is what makes `syntax` an honest answer here.
+_NONDETERMINISTIC_DEMAND = "tests"
+
 
 def cmd_run(args, cfg):
     """Run a pipeline over explicit targets, or over this session's record."""
@@ -440,15 +454,24 @@ def cmd_run(args, cfg):
             provider, operation = binding
             try:
                 outcome = execute_module.run_stage(
-                    provider, operation, stage, data, path, cfg.project_root
+                    provider,
+                    operation,
+                    stage,
+                    data,
+                    path,
+                    cfg.project_root,
+                    variables={"model": cfg.rewrite_model},
                 )
             except execute_module.StageError as error:
                 _err("stage %d on %s: %s" % (stage.index, os.path.basename(path), error))
                 return EXIT_REFUSED
             if outcome.changed:
                 scope = getattr(stage, "regions", "any")
-                if validation_module.rank(_SCOPE_DEMANDS.get(scope, "tests")) > validation_module.rank(demanded):
-                    demanded = _SCOPE_DEMANDS.get(scope, "tests")
+                demand = _SCOPE_DEMANDS.get(scope, "tests")
+                if not operation.deterministic:
+                    demand = _NONDETERMINISTIC_DEMAND
+                if validation_module.rank(demand) > validation_module.rank(demanded):
+                    demanded = demand
             data = outcome.data
             if outcome.report:
                 print("  stage %d %-22s %s" % (stage.index, operation.name, outcome.report.replace("\n", " ")[:80]))

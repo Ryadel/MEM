@@ -7,6 +7,8 @@ provider can do live in the provider definition itself.
 
 from __future__ import annotations
 
+from urllib.parse import urlparse
+
 
 ROLES = ("inspect", "transform", "validate")
 
@@ -32,13 +34,61 @@ CAPABILITIES = (
 
 # Capabilities excluded from default pipelines and from wildcard automation.
 # Enforced by the pipeline validator, not by documentation.
-RESTRICTED_CAPABILITIES = ("metadata-attribution", "c2pa")
+#
+# `statistical-rewrite` belongs here for a different reason than the other two.
+# They are restricted because removing provenance is a claim about a file's
+# history; a rewrite is restricted because it reformulates prose instead of
+# deleting bytes from it. Neither may be swept over a session's record: both
+# have to be aimed at a named file by someone who meant it.
+RESTRICTED_CAPABILITIES = ("metadata-attribution", "c2pa", "statistical-rewrite")
+
+# Hosts a provider's argument vector may address. This is upstream's own
+# loopback allowlist, so a definition here cannot reach further than the tool it
+# drives would let it.
+LOOPBACK_HOSTS = ("localhost", "127.0.0.1", "::1")
 
 BUILTIN_VALIDATORS = ("syntax", "format", "project")
 
 
 class DefinitionError(ValueError):
     """A definition file is malformed or outside the accepted schema."""
+
+
+def refuse_remote(argv, source, name):
+    """Refuse an argument vector that could send file content off this host.
+
+    1.0 ships no remote provider. Until a rewrite backend existed no definition
+    had a URL in its vector at all, and a URL is the one argument that turns a
+    local tool into a remote one -- so this is checked where the definition is
+    read, once, rather than trusted at every invocation.
+
+    A flag is refused by name as well: upstream's `--allow-remote` exists
+    precisely to lift its own loopback check, so passing it would hand the
+    decision to the tool after we had made it here.
+    """
+    for argument in argv:
+        if not isinstance(argument, str):
+            continue
+        if argument == "--allow-remote":
+            raise DefinitionError(
+                "%s: %r passes --allow-remote, which lifts the provider's own "
+                "loopback check; 1.0 ships no remote provider" % (source, name)
+            )
+        if "://" not in argument:
+            continue
+        try:
+            host = urlparse(argument).hostname
+        except ValueError as error:
+            raise DefinitionError(
+                "%s: %r contains an unparseable URL: %s" % (source, name, error)
+            )
+        if host is None:
+            continue
+        if host.lower() not in LOOPBACK_HOSTS:
+            raise DefinitionError(
+                "%s: %r addresses %r, which is not loopback; no file content "
+                "leaves this host at 1.0" % (source, name, host)
+            )
 
 
 class Operation:
@@ -77,6 +127,20 @@ class Operation:
                 "%s: operation %r declares metadata-technical without an allowlist"
                 % (source, name)
             )
+
+        # An operation may carry its own argument vector. One upstream project
+        # is routinely several programs -- cleaning and rewriting are different
+        # scripts of the same tool -- and a single vector per provider would
+        # force two provider ids onto one thing, which the id would then lie
+        # about. Both fields are optional, so every definition written against
+        # provider/1 before this existed still parses unchanged.
+        self.command = data.get("command")
+        if self.command is not None and not isinstance(self.command, str):
+            raise DefinitionError("%s: operation %r command must be a string" % (source, name))
+        args = data.get("args")
+        if args is not None and not isinstance(args, list):
+            raise DefinitionError("%s: operation %r args must be a list" % (source, name))
+        self.args = [str(argument) for argument in args] if args else []
 
     @property
     def writes(self):
@@ -125,9 +189,28 @@ class Provider:
             for name, body in operations.items()
         }
 
+        # Every vector this provider can run, checked once at load. Guarding the
+        # provider's own args as well as each operation's means a definition
+        # cannot smuggle a remote endpoint through the shared vector either.
+        refuse_remote([self.command] + self.args, source, self.id)
+        for operation in self.operations.values():
+            command, args = self.invocation(operation)
+            refuse_remote([command] + args, source, "%s/%s" % (self.id, operation.name))
+
     @property
     def is_custom(self):
         return self.id.startswith("custom/")
+
+    def invocation(self, operation):
+        """The command and argument vector for one operation.
+
+        The operation's own vector wins where it declares one; otherwise the
+        provider's is used, which is the shape every definition had before
+        operations could carry their own.
+        """
+        command = operation.command or self.command
+        args = list(operation.args) if operation.args else list(self.args)
+        return command, args
 
     def find(self, capability, role):
         """Operations satisfying a capability in a role, in declaration order."""

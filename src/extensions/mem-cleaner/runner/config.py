@@ -43,6 +43,11 @@ DEFAULTS = {
     "format_command": None,
     "project_root": "..",
     "validation_timeout": 600,
+    # Which local model a rewrite stage drives. There is no default: which
+    # model a host has pulled is a fact about that host, and inventing one
+    # would fail on every machine that chose differently. Absent means a
+    # rewrite stage refuses rather than guesses.
+    "rewrite_model": None,
 }
 
 
@@ -85,6 +90,10 @@ class Config:
             raise ConfigError("max_rewrite_stages must not be negative")
 
         self.format_command = _command(merged["format_command"])
+
+        model = merged["rewrite_model"]
+        text = str(model).strip() if model is not None else ""
+        self.rewrite_model = text if text and text.lower() not in NOT_A_COMMAND else None
         self.project_root_setting = str(merged["project_root"])
 
         try:
@@ -126,6 +135,7 @@ class Config:
             ("fail_policy", self.fail_policy),
             ("project_root", self.project_root),
             ("format_command", self.format_command or "(none)"),
+            ("rewrite_model", self.rewrite_model or "(none)"),
             ("build_command", self.build_command or "(none)"),
             ("test_command", self.test_command or "(none)"),
         ]

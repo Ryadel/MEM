@@ -6,10 +6,17 @@ find a candidate, then read that provider's own page.
 | Capability | Role | Candidates |
 |---|---|---|
 | `unicode` | `transform` | [watermarks-remover](watermarks-remover.md) |
+| `statistical-rewrite` | `transform` | [watermarks-remover](watermarks-remover.md) — **local model required** |
 
-One provider ships, and one operation of it. The omissions are deliberate and each has a measured reason —
-`metadata-*` because upstream's behaviour depends on which optional system tools happen to be installed, and
-`statistical-rewrite` because upstream ships no rewrite model at all. See the provider's own page.
+One provider ships, with two operations of it. The remaining omissions are deliberate: `metadata-*` is left out
+because upstream's behaviour depends on which optional system tools happen to be installed, which makes it
+reproducible per host rather than deterministic. See the provider's own page.
+
+`statistical-rewrite` was left out for a stated reason that turned out to be half wrong. Upstream ships no
+rewrite *model* — true, and it never will, because it delegates to one you supply. But its `ollama` backend
+addresses `127.0.0.1`, and upstream enforces a loopback allowlist that only `--allow-remote` lifts. A local
+rewrite backend therefore exists, and reaching it crosses no network interface. The operation ships bound to
+loopback, and the runner refuses any vector that says otherwise.
 
 Project entries in `custom/providers/` are read as well, under their `custom/<id>` namespace. They **extend**
 this table and never override it: a custom definition reusing a distributed id is refused.
@@ -24,7 +31,7 @@ The vocabulary a stage may request. A provider declares which it implements and 
 | `metadata-technical` | Generator strings, tool versions, build timestamps, editor artefacts — **allowlist required** | Yes |
 | `metadata-attribution` | Author, copyright, licence, contact, identity fields | **No** |
 | `c2pa` | Content Credentials assertions and manifests | **No** |
-| `statistical-rewrite` | Rewriting text to alter its statistical signature | **No** — rewrite role |
+| `statistical-rewrite` | Rewriting text to alter its statistical signature | **No** — restricted; needs a named target, a local model and `tests` |
 | `paraphrase` | Rewriting prose while preserving meaning | **No** — rewrite role |
 
 A capability not in this list cannot be requested by a distributed pipeline. A project may define its own for a
