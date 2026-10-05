@@ -1,32 +1,47 @@
 # Catalogue: capability → tool
 
-Keyed by **capability**, because the lookup starts from a task and not from a tool name. Read this file to pick a
-candidate, then read that tool's own page.
+Keyed by **capability**, because the lookup starts from a task and not from a tool name. Read this file, then the
+sub-index for the task's domain to pick a candidate, then that tool's own page.
 
-The catalogue is deliberately scoped to **media processing** — images, and since 1.0.1 audio and video: small and
-opinionated, a default toolchain rather than an encyclopedia. Its value is preference and provenance — which tool
-to reach for, and where it comes from — not explaining what well-known tools are.
+The catalogue covers **media, documents and data** — since 1.0.2 it holds libraries and the runtimes they need
+as well as CLI tools. It stays opinionated: a default toolchain, not an encyclopedia. Its value is preference and
+provenance — which tool to reach for, and where it comes from — not explaining what well-known tools are.
 
 Project entries in `custom/index.md` are read **first** and override these.
 
+## Runtimes
+
+A library is only usable through its runtime. Probe the runtime first; see "Libraries and runtimes" in the
+extension's `index.md`.
+
 | Capability | Candidates |
 |---|---|
-| Convert or transform an image | [imagemagick](imagemagick.md), [vips](vips.md) |
-| Resize or thumbnail, at scale | [vips](vips.md), [imagemagick](imagemagick.md) |
-| Optimise a PNG losslessly | [oxipng](oxipng.md) |
-| Render an SVG to a raster image | [resvg](resvg.md) |
-| Upscale an image | [realesrgan](realesrgan.md) |
-| Convert or transcode audio or video | [ffmpeg](ffmpeg.md) |
-| Extract frames or stills from a video | [ffmpeg](ffmpeg.md) |
-| Extract, replace or re-encode an audio track | [ffmpeg](ffmpeg.md) |
-| Inspect media metadata, codecs and streams | [ffmpeg](ffmpeg.md) |
+| Run Python libraries | [python](python.md) |
+| Run Node packages | [node](node.md) |
+
+## Domains
+
+| Domain | Sub-index | Covers |
+|---|---|---|
+| Media | [index.media.md](index.media.md) | images, SVG, metadata, audio and video |
+| Documents | [index.documents.md](index.documents.md) | PDF, Word, Excel, PowerPoint, document conversion |
+| Data | [index.data.md](index.data.md) | CSV and tabular data, JSON, charts |
+
+A candidate list may mix CLI tools and libraries. They compete in one list, in preference order: a library is
+not a fallback for a CLI tool, nor the reverse.
+
+## Reading an entry
 
 Being listed here says nothing about availability: check `custom/installed/<host>.md` before using one.
 
-The id in the first column of a tool's page is also its folder name under the tools root — see "Where tools live
+The id is the entry's filename and, for a CLI tool, its folder name under the tools root — see "Where tools live
 on disk" in the extension's `index.md`. Where a tool has more than one implementation, the id names the tool and
-the implementation belongs to the build, not to the catalogue: `realesrgan`, not `realesrgan-ncnn-vulkan`.
+the implementation belongs to the build: `realesrgan`, not `realesrgan-ncnn-vulkan`. A library has no folder: it
+lives in an agent environment.
 
 Licences were read from upstream on the date recorded in each entry. Re-verify before relying on one: upstream
-terms change, and a stale licence claim is worse than none. Note that for `ffmpeg` the licence of the **binary
-build** can differ from the licence of the project — the entry explains why.
+terms change, and a stale licence claim is worse than none. For `ffmpeg` the licence of the **binary build** can
+differ from the project's, and for `reportlab` only the open-source toolkit is covered; both entries explain.
+
+Deliberately absent: PyMuPDF and Ghostscript, both AGPL-3.0, verified 2026-10-05. A project may still add either
+as a custom entry, knowing the licence.

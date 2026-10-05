@@ -4,6 +4,42 @@ All notable MEM changes are documented in this file.
 
 MEM uses `MAJOR.MINOR.BUILD` versioning. Version-to-version migration steps are documented in [MEM.upgrade.md](MEM.upgrade.md).
 
+## 1.1.5 - 2026-10-05
+
+### Added
+
+- Added **libraries and runtimes** to `mem-toolbox`. `python` and `node` are catalogue entries of the new
+  `kind: runtime`; a library declares `requires: <runtime>`, its `package` name, and its `import` name where the
+  two differ.
+- Added **agent environments** to `mem-toolbox`: one per runtime, per host, recorded in the host file as
+  `<runtime> env`. Whether it is a dedicated environment under `<tools root>/envs/` or the system interpreter is
+  always asked, never preset, and the trade-offs are stated every time.
+- Added **approved installs**. The agent may install a package into the dedicated environment after explicit
+  approval naming package, version, environment and registry, and only a name taken from a catalogue entry or
+  given by the user. Runtimes, CLI tools and system interpreters remain proposal-only. `mem-toolbox` therefore
+  now declares `external actions: yes`, and the approval is required even when
+  `extensions_allow_external_side_effects` is true.
+- Added `min version` to catalogue entries, and the `outdated` status for a tool that works but is below it.
+- Added `MEM TOOLS CHECK`, which probes runtimes and agent environments on request and writes only the host file.
+  It never installs, never reaches the network, and never runs at session start.
+- Added 18 catalogue entries: `python`, `node`, `reportlab`, `pypdf`, `pdfplumber`, `qpdf`, `pandoc`, `typst`,
+  `python-docx`, `openpyxl`, `python-pptx`, `pillow`, `svgo`, `exiftool`, `pandas`, `duckdb`, `jq`,
+  `matplotlib`, each licence read from upstream on 2026-10-05.
+
+### Changed
+
+- `mem-toolbox` is now 1.0.2. Its catalogue covers media, documents and data, split into per-domain sub-indexes
+  — `catalog/index.media.md`, `index.documents.md`, `index.data.md` — under a `catalog/index.md` that now lists
+  runtimes and domains.
+- "The agent never installs" now has one exception, bounded by isolation: an approved package into the dedicated
+  environment, which deleting one folder undoes. Entries still never carry an install command.
+- The boundary with `references/` now also covers project dependencies: a library the product depends on belongs
+  to the project's own manifest, never to an agent environment.
+
+### Configuration
+
+- No option was added, removed or renamed.
+
 ## 1.1.4 - 2026-08-17
 
 ### Added

@@ -270,13 +270,19 @@ The `mem-commands` extension adds three more. It is not installed by default; th
 
 ### Tooling from `mem-toolbox`
 
-The `mem-toolbox` extension answers two questions an agent otherwise re-derives every session: which CLI tool to use for a task, and whether it is actually installed here. It adds `MEM TOOLS`, which lists what is known.
+The `mem-toolbox` extension answers two questions an agent otherwise re-derives every session: which tool or library to use for a task, and whether it is actually installed here. It adds `MEM TOOLS`, which lists what is known.
 
 It keeps those two answers apart, and that separation is the point. Which tool a project uses is portable knowledge and belongs in the repository. Whether a tool exists at a given path is true of one machine only, so it lives in per-host files. Recording availability as a plain fact would let an agent on a colleague's machine read "available", skip asking you, and fail — so availability is always stamped with a host and a date, and evidence from another machine is treated as a hint rather than proof.
 
 Per-host observations are written automatically, since they only record what a version command answered. Catalogue entries need confirmation, because deciding "this is what we use for X" is a judgement rather than an observation. Absence is recorded too: a tool you declined is not proposed again next session.
 
-MEM ships a small image-processing catalogue — ImageMagick, vips, oxipng, resvg, realesrgan-ncnn-vulkan — with each licence read from upstream and dated. Your own entries override it, since local knowledge is closer to the truth. The agent never installs anything: entries carry project URLs, never install commands.
+It covers libraries as well as command-line tools, because the question is the task, not the kind of tool: "create a PDF" can be answered by `typst` or by the Python library ReportLab, and both belong in one list of candidates. A library needs a runtime, so `python` and `node` are entries too, each with a minimum version. A tool that works but is below its minimum is reported as outdated once, not on every use; `MEM TOOLS CHECK` checks your runtimes when you ask, and never at the start of a session.
+
+Libraries live in an **agent environment**: one per runtime, per machine. The agent always asks whether that should be a dedicated environment — a venv, or an npm folder, under your tools directory — or the system interpreter, and tells you the trade-offs each time. Either way every project on that machine ends up with the same tools and versions; the dedicated one is isolated from everything else, needs no admin rights, and is undone by deleting one folder.
+
+That isolation is what allows the one install the agent may perform: a package into the dedicated environment, after you approve a request naming the package, its version, the environment and the registry. Runtimes, command-line tools and anything system-wide are always left to you; the agent tells you the exact command or the exact folder. A library your *product* depends on is not agent tooling at all and stays in your project's own dependency file.
+
+MEM ships a catalogue for media, documents and data — ImageMagick, vips, oxipng, resvg, Real-ESRGAN, ffmpeg, Pillow, svgo, ExifTool; ReportLab, pypdf, pdfplumber, qpdf, Pandoc, Typst, python-docx, openpyxl, python-pptx; pandas, DuckDB, jq, Matplotlib — with each licence read from upstream and dated. PyMuPDF and Ghostscript are left out because they are AGPL. Your own entries override the catalogue, since local knowledge is closer to the truth. Entries carry project URLs, never install commands.
 
 ## Configuration
 

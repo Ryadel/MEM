@@ -95,14 +95,14 @@ Nothing under `extensions/mem-commands/custom/` is listed here, and an update th
 
 ### mem-toolbox
 
-- **version**: 1.0.1
-- **provides**: `TOOLS`, and the CLI capability registry
+- **version**: 1.0.2
+- **provides**: `TOOLS` (subcommand `CHECK`), and the tool, library and runtime capability registry
 - **precedence**: custom
-- **external actions**: no
+- **external actions**: yes — approved package installs into a dedicated agent environment only
 - **default mode**: read-only
 - **bootstrap entry**: `extensions/mem-toolbox/custom/installed/<host>.md`
-- **summary**: which CLI tool to use for a task, and whether it is available on this host. Ships a small media
-  processing catalogue.
+- **summary**: which CLI tool or library to use for a task, and whether it is available on this host. Ships a
+  catalogue for media, documents and data, with the Python and Node runtimes libraries need.
 - **base files**:
 
 ```text
@@ -115,6 +115,27 @@ extensions/mem-toolbox/catalog/oxipng.md
 extensions/mem-toolbox/catalog/resvg.md
 extensions/mem-toolbox/catalog/realesrgan.md
 extensions/mem-toolbox/catalog/ffmpeg.md
+extensions/mem-toolbox/catalog/index.media.md
+extensions/mem-toolbox/catalog/index.documents.md
+extensions/mem-toolbox/catalog/index.data.md
+extensions/mem-toolbox/catalog/python.md
+extensions/mem-toolbox/catalog/node.md
+extensions/mem-toolbox/catalog/pillow.md
+extensions/mem-toolbox/catalog/svgo.md
+extensions/mem-toolbox/catalog/exiftool.md
+extensions/mem-toolbox/catalog/reportlab.md
+extensions/mem-toolbox/catalog/pypdf.md
+extensions/mem-toolbox/catalog/pdfplumber.md
+extensions/mem-toolbox/catalog/qpdf.md
+extensions/mem-toolbox/catalog/pandoc.md
+extensions/mem-toolbox/catalog/typst.md
+extensions/mem-toolbox/catalog/python-docx.md
+extensions/mem-toolbox/catalog/openpyxl.md
+extensions/mem-toolbox/catalog/python-pptx.md
+extensions/mem-toolbox/catalog/pandas.md
+extensions/mem-toolbox/catalog/duckdb.md
+extensions/mem-toolbox/catalog/jq.md
+extensions/mem-toolbox/catalog/matplotlib.md
 ```
 
 - **removed in 1.0.1**: `extensions/mem-toolbox/catalog/realesrgan-ncnn-vulkan.md`, renamed to

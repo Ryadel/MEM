@@ -22,6 +22,42 @@ Before applying an upgrade, identify the current local MEM version and the targe
 1.0.0 through 1.0.2. A knowledge base on a base earlier than 1.0.3 should be re-initialized against the current
 MEM version rather than migrated step by step.
 
+## 1.1.4 -> 1.1.5
+
+### Summary
+
+`mem-toolbox` 1.0.2 adds libraries and the runtimes they need, an agent environment per runtime and per host,
+approved package installs into a dedicated environment, `min version` with an `outdated` status, `MEM TOOLS
+CHECK`, and a catalogue widened to media, documents and data. The core changes only its version.
+
+### Required actions
+
+- Update `MEM.md` to 1.1.5. No core rule changed.
+- If `mem-toolbox` is installed, update it to 1.0.2 from the manifest. The update **adds** files and deletes none;
+  `catalog/index.md` is rewritten and now points to three sub-indexes.
+- Update the `mem-toolbox` row in `extensions/EXT.md`: it now performs external actions (`yes`) — the approved
+  package install, and nothing else.
+- `custom/index.md` needs no change. Every capability of the 1.0.1 catalogue keeps its wording, now in
+  `catalog/index.media.md`, and custom still wins.
+- Do **not** add `<runtime> env` lines to host files during the upgrade. The question is asked the first time a
+  runtime is needed on a host, with its trade-offs; an absent line means "not yet asked", never `system`.
+- If a project installed libraries for the agent into its own virtual environment before this version, leave
+  them: that environment belongs to the project. Record nothing about it in the host file.
+
+### Configuration changes
+
+- None.
+
+### Verification
+
+- `MEM.md` reports version 1.1.5.
+- `extensions/mem-toolbox/index.md` declares version 1.0.2, the subcommand `CHECK`, and `external actions: yes`;
+  `EXT.md` agrees.
+- `extensions/mem-toolbox/catalog/` contains `index.media.md`, `index.documents.md`, `index.data.md`,
+  `python.md` and `node.md`, and every link in the sub-indexes resolves.
+- `MEM TOOLS` still writes nothing. `MEM TOOLS CHECK` writes only `custom/installed/<current-host>.md`.
+- No host file gained a `<runtime> env` line from the upgrade itself.
+
 ## 1.1.3 -> 1.1.4
 
 ### Summary
