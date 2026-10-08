@@ -312,6 +312,7 @@ build_command: "auto-detect"
 test_command: "auto-detect"
 run_command: "auto-detect"
 default_branch: "auto-detect"
+agent_tmp_dir: ".tmp"
 
 update_daily_log: true
 create_adr_for_decisions: true
@@ -503,6 +504,16 @@ A MEM-aware agent should follow this workflow:
 7. inspect source code before making implementation claims;
 8. perform the requested work;
 9. update the knowledge base when meaningful, durable knowledge was discovered or produced.
+
+## Agent temporary files
+
+Agents produce throwaway files: a second build because Visual Studio has the first one locked, a test run, a script written to try something, a converted file. Left to themselves they put these wherever seems convenient at that moment, and the folders stay behind as clutter — sometimes committed, sometimes inside a project, where they quietly break the next build.
+
+MEM gives them one place: `.tmp/` at the repository root, renamable with `agent_tmp_dir` in `MEM.config.md`. Before writing there the agent checks that git ignores the folder; if it does not, the folder's first file is its own `.gitignore` containing `*`, so it excludes itself without touching any file you track. If you would rather see the exclusion in your root `.gitignore`, the agent adds that line only with your confirmation.
+
+The folder sits at the root, never inside a project, because build tools pick up everything in their own directory: generated sources in a stray folder inside a .NET project get compiled into it. Its contents can be deleted at any time — nothing in it is ever the only copy of a result. Because `.tmp` is a common name, the agent only treats the folder as its own if it created it or you have said so: a `.tmp` that was already there is never emptied, and the agent asks before using it.
+
+When the agent has to build beside a locked build, it redirects the intermediates as well as the outputs. Moving only `bin/` leaves both builds writing the same `obj/`, which is where intermittent, unreproducible build errors come from. On .NET 8 and later, `dotnet build --artifacts-path .tmp/build` does both.
 
 ## When to update the knowledge base
 

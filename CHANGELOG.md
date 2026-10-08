@@ -4,6 +4,25 @@ All notable MEM changes are documented in this file.
 
 MEM uses `MAJOR.MINOR.BUILD` versioning. Version-to-version migration steps are documented in [MEM.upgrade.md](MEM.upgrade.md).
 
+## 1.1.6 - 2026-10-08
+
+### Added
+
+- Added **agent temporary files**: everything the agent produces for its own use — alternate build output, test
+  runs, scratch scripts, intermediate conversions — goes in one folder at the repository root, and nowhere else.
+- The folder is excluded from git **before** it is created. The agent checks with
+  `git check-ignore -q <agent_tmp_dir>/probe`; if the folder is not ignored, its first file is a `.gitignore`
+  containing `*`, which touches no tracked file. A root `.gitignore` line remains available with confirmation.
+- A pre-existing folder with that name is not adopted: one the agent did not create is never emptied, and the
+  agent asks before writing into it.
+- Added a rule for **isolated builds**: when an IDE holds the regular build's outputs, the agent builds into
+  `<agent_tmp_dir>/build/` and redirects intermediates as well as outputs — on .NET 8 and later with
+  `dotnet build --artifacts-path`.
+
+### Configuration
+
+- Added `agent_tmp_dir: ".tmp"`.
+
 ## 1.1.5 - 2026-10-05
 
 ### Added

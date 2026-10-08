@@ -22,6 +22,40 @@ Before applying an upgrade, identify the current local MEM version and the targe
 1.0.0 through 1.0.2. A knowledge base on a base earlier than 1.0.3 should be re-initialized against the current
 MEM version rather than migrated step by step.
 
+## 1.1.5 -> 1.1.6
+
+### Summary
+
+The core gains one rule: everything an agent produces for its own use goes in a single folder at the repository
+root, `agent_tmp_dir` (default `.tmp`), excluded from git before it is created. Isolated builds redirect
+intermediates as well as outputs. No extension changes.
+
+### Required actions
+
+- Replace `MEM.md` with version 1.1.6.
+- Add `agent_tmp_dir` to `MEM.config.md` only to change the name. Omitting it is fine: the default is
+  `.tmp`.
+- If a `.tmp` folder already exists at the repository root, **ask the user** whether it may become the agent's.
+  If not, set `agent_tmp_dir` to another name. Never empty or re-purpose it unasked.
+- Do **not** create the folder during the upgrade. It is created the first time the agent needs it, with its
+  exclusion as the first file.
+- If agent-created build or scratch folders already exist in the repository, **list them for the user** and
+  propose moving their useful content into `agent_tmp_dir` or deleting them. Never delete them unasked: a folder
+  that looks like debris may be something a person relies on.
+
+### Configuration changes
+
+- Added `agent_tmp_dir` (default `".tmp"`).
+- No option was removed or renamed.
+
+### Verification
+
+- `MEM.md` reports version 1.1.6.
+- If `<agent_tmp_dir>/` exists, `git check-ignore -q <agent_tmp_dir>/probe` succeeds and `git status` does not
+  list it.
+- No agent-created build or scratch folder exists outside `agent_tmp_dir`, or the user has been told about each
+  one.
+
 ## 1.1.4 -> 1.1.5
 
 ### Summary

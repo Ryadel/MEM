@@ -1,6 +1,6 @@
 # [MEM: Markdown Embedded Memory](https://github.com/Ryadel/MEM)
 
-MEM version: 1.1.5
+MEM version: 1.1.6
 
 This file is the LLM agent's bootstrap memory for this project. The terms `MEM`, `MEM.md`, project context, and project memory all refer to this file. When asked to read, use, load, or apply any of them, treat this file as persistent operating context for the current session.
 
@@ -63,6 +63,7 @@ build_command: "auto-detect"
 test_command: "auto-detect"
 run_command: "auto-detect"
 default_branch: "auto-detect"
+agent_tmp_dir: ".tmp"
 
 update_daily_log: true
 create_adr_for_decisions: true
@@ -614,6 +615,36 @@ Before modifying code:
 7. update the KB if the change is meaningful.
 
 Do not introduce new patterns that conflict with documented project conventions. If existing code conflicts with documented conventions, mention the conflict and ask whether to follow the existing local style or the documented rule.
+
+## Agent temporary files
+
+Everything the agent produces for its own use and does not hand over — an alternate build output, test runs,
+scratch scripts, intermediate conversions, downloads — goes in **one** folder, `agent_tmp_dir` (default
+`.tmp`), and nowhere else. The agent **must not** create a build or scratch folder anywhere else in the
+repository or beside it.
+
+- **Location**: the repository root, beside the solution or workspace file — **never** inside a project folder.
+  Build tools glob their own directory: an SDK-style .NET project compiles every `**/*.cs` except under `bin/` and
+  `obj/`, so generated sources in any other folder inside it are compiled into it. `tsconfig.json` `include`,
+  linters and file watchers behave the same way.
+- **Excluded before it exists**: before the first write in a session, the agent **must** run
+  `git check-ignore -q <agent_tmp_dir>/probe`. Check a path *inside* the folder: that form answers correctly for
+  both exclusions below. If the path is not ignored, the folder's **first** file **must** be a `.gitignore`
+  containing `*`. It ignores the folder and itself, touches no tracked file, and needs no confirmation. A
+  `<agent_tmp_dir>/` line in the root `.gitignore` is the alternative when the user prefers it visible: it changes
+  a tracked file, so it needs confirmation.
+- **Owned, or left alone**: `.tmp` is a common name. A folder the agent did not create — no `.gitignore`
+  containing `*`, and not confirmed by the user as the agent's — may belong to a person or another tool. The
+  agent **must not** empty it, and **must** ask before writing into it; if it is taken, propose another
+  `agent_tmp_dir`.
+- **Disposable**: once the folder is the agent's, the agent or the user **may** empty it at any time. Nothing in
+  it is ever the only copy of a result: a deliverable is moved to its destination. Across sessions, treat the
+  contents as a cache.
+- **Isolated builds**: when the regular build cannot run — typically because an IDE holds its outputs — build into
+  `<agent_tmp_dir>/build/`, redirecting **intermediates as well as outputs**. Two builds sharing intermediates
+  (`obj/` in .NET) corrupt each other's incremental state even when their outputs differ. With the .NET 8 SDK or
+  later, `dotnet build --artifacts-path <agent_tmp_dir>/build` redirects both. Record the command that worked in
+  `references/`.
 
 ---
 
