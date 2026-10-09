@@ -18,7 +18,7 @@ MEM does not require a specific runtime, dedicated SDK or proprietary integratio
 
 This means it can be used with tools such as **Claude Code**, **OpenAI Codex**, **GitHub Copilot**, **Cursor**, **Windsurf**, **Visual Studio Code** with AI extensions, **Visual Studio** with chat extensions or coding assistants, as well as any custom agent based on models such as GPT, Claude, Gemini, Llama or similar.
 
-The only practical requirement is that the tool can access the `MEM.md` file and treat it as the project’s persistent operating context. From that point on, MEM remains vendor-independent: the agent reads the instructions, consults the knowledge base, updates logs and documentation, and keeps the context aligned with the repository according to the rules defined by the project.
+The only practical requirement is that the tool can access the `MEM.md` file and treat it as the project's persistent operating context. From that point on, MEM remains vendor-independent: the agent reads the instructions, consults the knowledge base, updates logs and documentation, and keeps the context aligned with the repository according to the rules defined by the project.
 
 ## How to use
 
@@ -49,6 +49,8 @@ The agent should create the target folder if it does not exist, save the file lo
 4. Ask the agent to read and apply the `MEM.md` file before doing any non-trivial work on the project.
 5. Let the agent initialize or update the project knowledge base as work progresses.
 
+`/MEM/` is a convention, not a requirement. The folder that contains `MEM.md` is the knowledge base root, `KB_ROOT`, wherever it is: a differently named folder, a subfolder, or even a separate repository beside the code.
+
 A typical first prompt can be:
 
 ```text
@@ -57,7 +59,7 @@ Initialize the MEM knowledge base if required,
 then inspect the project before making implementation claims.
 ```
 
-From that point on, the agent can use MEM as the project’s persistent context layer: it can read existing documentation, update daily logs, record decisions, preserve troubleshooting notes and keep the knowledge base aligned with the actual source code.
+From that point on, the agent can use MEM as the project's persistent context layer: it can read existing documentation, update daily logs, record decisions, preserve troubleshooting notes and keep the knowledge base aligned with the actual source code.
 
 ## What is MEM
 
@@ -313,6 +315,7 @@ test_command: "auto-detect"
 run_command: "auto-detect"
 default_branch: "auto-detect"
 agent_tmp_dir: ".tmp"
+agent_tmp_retention_days: 7
 
 update_daily_log: true
 create_adr_for_decisions: true
@@ -511,7 +514,11 @@ Agents produce throwaway files: a second build because Visual Studio has the fir
 
 MEM gives them one place: `.tmp/` at the repository root, renamable with `agent_tmp_dir` in `MEM.config.md`. Before writing there the agent checks that git ignores the folder; if it does not, the folder's first file is its own `.gitignore` containing `*`, so it excludes itself without touching any file you track. If you would rather see the exclusion in your root `.gitignore`, the agent adds that line only with your confirmation.
 
-The folder sits at the root, never inside a project, because build tools pick up everything in their own directory: generated sources in a stray folder inside a .NET project get compiled into it. Its contents can be deleted at any time — nothing in it is ever the only copy of a result. Because `.tmp` is a common name, the agent only treats the folder as its own if it created it or you have said so: a `.tmp` that was already there is never emptied, and the agent asks before using it.
+The folder sits at the root, never inside a project, because build tools pick up everything in their own directory: generated sources in a stray folder inside a .NET project get compiled into it. The leading dot in `.tmp` helps too — the .NET SDK skips dot-folders — so if you rename the folder, keep the dot. If your repository root is also a project folder, as with a `package.json` at the root, the folder still goes there, and the agent proposes adding it to the ignore list of any tool that picks it up. Because `.tmp` is a common name, the agent only treats the folder as its own if it created it or you have said so: a `.tmp` that was already there is never emptied, and the agent asks before using it.
+
+Inside, a cache the agent reuses keeps a fixed name, like `build/`; everything else goes in one folder per task, named with its date and a short description, such as `2026-10-09-pdf-to-md/`. A glance at the folder tells you what each entry was for and when it started.
+
+The folder also cleans itself. At the start of a session the agent deletes every entry nobody has used for 7 days — `agent_tmp_retention_days` changes the number, `0` turns it off. Age is measured from the last use, not from the date in the name, so a build the agent reuses every day is never deleted, and entries are removed whole: deleting old files from inside a build would break the next incremental build. This is safe because nothing in the folder is ever the only copy of a result, and the agent checks that before ending a session. The cleanup runs at the start of a session because an agent cannot promise to still be there at the end of one.
 
 When the agent has to build beside a locked build, it redirects the intermediates as well as the outputs. Moving only `bin/` leaves both builds writing the same `obj/`, which is where intermittent, unreproducible build errors come from. On .NET 8 and later, `dotnet build --artifacts-path .tmp/build` does both.
 

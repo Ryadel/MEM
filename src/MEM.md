@@ -1,6 +1,6 @@
 # [MEM: Markdown Embedded Memory](https://github.com/Ryadel/MEM)
 
-MEM version: 1.1.6
+MEM version: 1.1.7
 
 This file is the LLM agent's bootstrap memory for this project. The terms `MEM`, `MEM.md`, project context, and project memory all refer to this file. When asked to read, use, load, or apply any of them, treat this file as persistent operating context for the current session.
 
@@ -64,6 +64,7 @@ test_command: "auto-detect"
 run_command: "auto-detect"
 default_branch: "auto-detect"
 agent_tmp_dir: ".tmp"
+agent_tmp_retention_days: 7
 
 update_daily_log: true
 create_adr_for_decisions: true
@@ -600,6 +601,9 @@ After meaningful work, consider updating:
 
 Do not over-document trivial work.
 
+Before ending, check that nothing the user needs is left only in `agent_tmp_dir`: the retention rule in "Agent
+temporary files" deletes it without asking.
+
 ---
 
 # Code modification rules
@@ -624,15 +628,22 @@ scratch scripts, intermediate conversions, downloads — goes in **one** folder,
 repository or beside it.
 
 - **Location**: the repository root, beside the solution or workspace file — **never** inside a project folder.
-  Build tools glob their own directory: an SDK-style .NET project compiles every `**/*.cs` except under `bin/` and
-  `obj/`, so generated sources in any other folder inside it are compiled into it. `tsconfig.json` `include`,
-  linters and file watchers behave the same way.
+  Build tools glob their own directory: an SDK-style .NET project compiles every `**/*.cs` except under `bin/`,
+  `obj/` and folders whose name begins with a dot, so generated sources in any other folder inside it are compiled
+  into it. `tsconfig.json` `include`, linters and file watchers behave similarly. The name **should** therefore
+  begin with a dot; not every tool skips dot-folders, so the dot adds to the location rule and does not replace it.
+  Where the repository root is itself a project folder — a `package.json` or `.csproj` at the root — the root is
+  still the location: if a tool there picks the folder up, propose adding it to that tool's ignore list. When the
+  work spans several repositories under a workspace folder that is not one, use the workspace root.
 - **Excluded before it exists**: before the first write in a session, the agent **must** run
   `git check-ignore -q <agent_tmp_dir>/probe`. Check a path *inside* the folder: that form answers correctly for
-  both exclusions below. If the path is not ignored, the folder's **first** file **must** be a `.gitignore`
-  containing `*`. It ignores the folder and itself, touches no tracked file, and needs no confirmation. A
-  `<agent_tmp_dir>/` line in the root `.gitignore` is the alternative when the user prefers it visible: it changes
-  a tracked file, so it needs confirmation.
+  both exclusions below. If the check does not succeed — exit code 1 when the path is not ignored, 128 when there
+  is no repository — the folder's **first** file **must** be a `.gitignore` containing `*`. It ignores the folder
+  and itself, touches no tracked file, needs no confirmation, and marks the folder as the agent's: outside a
+  repository it is written for that reason alone. A `<agent_tmp_dir>/` line in the root `.gitignore` is the
+  alternative when the user prefers it visible: it changes a tracked file, so it needs confirmation.
+- **Layout**: a cache reused across sessions keeps a fixed name, such as `build/` below. Everything else **should**
+  go in one folder per task, `YYYY-MM-DD-<slug>/`, dated the day it is created, not loose at the top level.
 - **Owned, or left alone**: `.tmp` is a common name. A folder the agent did not create — no `.gitignore`
   containing `*`, and not confirmed by the user as the agent's — may belong to a person or another tool. The
   agent **must not** empty it, and **must** ask before writing into it; if it is taken, propose another
@@ -640,6 +651,13 @@ repository or beside it.
 - **Disposable**: once the folder is the agent's, the agent or the user **may** empty it at any time. Nothing in
   it is ever the only copy of a result: a deliverable is moved to its destination. Across sessions, treat the
   contents as a cache.
+- **Retention**: in a folder that is the agent's, at the same moment as the check above, the agent **should**
+  delete every top-level entry unused for `agent_tmp_retention_days` days (`0` disables it). At the start, not at
+  the end of the session, which the agent cannot promise to reach. An entry's last use is the newest modification
+  time anywhere inside it, folders included, since extracted files keep their archived dates: a cache reused
+  yesterday survives, and the date in a folder's name is not its age. Delete whole entries, never files inside one:
+  removing old files from a build's intermediates breaks the next incremental build. Skip what cannot be deleted,
+  such as a locked file, never delete the folder's own `.gitignore`, and report in one line what was removed.
 - **Isolated builds**: when the regular build cannot run — typically because an IDE holds its outputs — build into
   `<agent_tmp_dir>/build/`, redirecting **intermediates as well as outputs**. Two builds sharing intermediates
   (`obj/` in .NET) corrupt each other's incremental state even when their outputs differ. With the .NET 8 SDK or

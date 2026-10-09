@@ -22,6 +22,40 @@ Before applying an upgrade, identify the current local MEM version and the targe
 1.0.0 through 1.0.2. A knowledge base on a base earlier than 1.0.3 should be re-initialized against the current
 MEM version rather than migrated step by step.
 
+## 1.1.6 -> 1.1.7
+
+### Summary
+
+Agent temporary files gain retention: at the start of a session, top-level entries of `agent_tmp_dir` unused for
+`agent_tmp_retention_days` days (default 7) are deleted whole. Inside the folder, a reused cache keeps a fixed
+name and everything else goes in a dated folder per task. The location rule now recommends a leading dot and
+covers a root that is a project folder, a multi-repository workspace and a folder outside any repository. No
+extension changes.
+
+### Required actions
+
+- Replace `MEM.md` with version 1.1.7.
+- Add `agent_tmp_retention_days` to `MEM.config.md` only to change it. Omitting it is fine: the default is `7`;
+  `0` disables retention.
+- If `MEM.config.md` sets `agent_tmp_dir` to a name that does not begin with a dot, **tell the user** and propose
+  renaming it. Never rename or move the folder unasked.
+- Do **not** run a retention pass during the upgrade. If `<agent_tmp_dir>/` exists and is the agent's, list for the
+  user the entries the first pass will delete — those unused for longer than `agent_tmp_retention_days` days.
+- Leave loose files and undated folders already in `<agent_tmp_dir>/` where they are. The layout applies to new
+  work; retention removes old entries whatever their names.
+
+### Configuration changes
+
+- Added `agent_tmp_retention_days` (default `7`).
+- No option was removed or renamed.
+
+### Verification
+
+- `MEM.md` reports version 1.1.7.
+- `agent_tmp_dir` begins with a dot, or the user has been told that it does not.
+- If `<agent_tmp_dir>/` exists, it contains its `.gitignore` with `*`, or the user has confirmed the folder as the
+  agent's.
+
 ## 1.1.5 -> 1.1.6
 
 ### Summary
