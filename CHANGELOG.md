@@ -4,6 +4,34 @@ All notable MEM changes are documented in this file.
 
 MEM uses `MAJOR.MINOR.BUILD` versioning. Version-to-version migration steps are documented in [MEM.upgrade.md](MEM.upgrade.md).
 
+## 1.1.7 - 2026-10-09
+
+### Added
+
+- Added **retention** for agent temporary files. At the start of a session the agent deletes every top-level
+  entry of `agent_tmp_dir` unused for `agent_tmp_retention_days` days. Age is the newest modification time inside
+  the entry, so a cache reused every day never expires; entries are deleted whole, never file by file, so an
+  isolated build is never left half-deleted.
+- Added a **layout** inside the folder: a reused cache keeps a fixed name such as `build/`; everything else goes
+  in one folder per task, `YYYY-MM-DD-<slug>/`.
+- The end-of-session checklist now checks that nothing the user needs is left only in `agent_tmp_dir`, the
+  guarantee retention depends on.
+
+### Changed
+
+- Corrected the reason given for the folder's location: the .NET SDK excludes folders whose name begins with a dot
+  from a project's default items, as well as `bin/` and `obj/`. The name of `agent_tmp_dir` should therefore begin
+  with a dot.
+- Covered three cases the 1.1.6 rule did not: a repository root that is itself a project folder, a workspace of
+  several repositories that is not one, and `git check-ignore` run outside any repository (exit code 128), where
+  the folder still gets its `.gitignore`, which also marks it as the agent's.
+- `README.md`: `/MEM/` is described as a convention, not a requirement for `KB_ROOT`; apostrophes normalized to
+  ASCII.
+
+### Configuration
+
+- Added `agent_tmp_retention_days: 7`. `0` disables retention.
+
 ## 1.1.6 - 2026-10-08
 
 ### Added
