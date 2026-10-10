@@ -49,7 +49,7 @@ The agent should create the target folder if it does not exist, save the file lo
 4. Ask the agent to read and apply the `MEM.md` file before doing any non-trivial work on the project.
 5. Let the agent initialize or update the project knowledge base as work progresses.
 
-`/MEM/` is a convention, not a requirement. The folder that contains `MEM.md` is the knowledge base root, `KB_ROOT`, wherever it is: a differently named folder, a subfolder, or even a separate repository beside the code.
+`/MEM/` is a convention, not a requirement. The folder that contains `MEM.md` is the knowledge base root, `KB_ROOT`, wherever it is: a differently named folder, a subfolder, or even a separate repository beside the code — the `mem-workspace` extension describes that last layout, for keeping the knowledge base out of a public repository.
 
 A typical first prompt can be:
 
@@ -286,6 +286,22 @@ That isolation is what allows the one install the agent may perform: a package i
 
 MEM ships a catalogue for media, documents and data — ImageMagick, vips, oxipng, resvg, Real-ESRGAN, ffmpeg, Pillow, svgo, ExifTool; ReportLab, pypdf, pdfplumber, qpdf, Pandoc, Typst, python-docx, openpyxl, python-pptx; pandas, DuckDB, jq, Matplotlib — with each licence read from upstream and dated. PyMuPDF and Ghostscript are left out because they are AGPL. Your own entries override the catalogue, since local knowledge is closer to the truth. Entries carry project URLs, never install commands.
 
+### Workspaces from `mem-workspace`
+
+A knowledge base is working memory: decisions, logs, half-finished plans. In a public repository you usually do not want it published, and a `.gitignore` line is a poor answer — the knowledge base then lives in no repository at all, with no history and no backup, one `git add -f` away from a public push.
+
+The `mem-workspace` extension describes the alternative: the knowledge base in a **private repository beside the public one**, both in a workspace folder that is not itself a repository, with an optional wiki as a third sibling. Privacy then comes from the remote, not from an ignore rule.
+
+| Command | Purpose |
+|---|---|
+| `MEM WORKSPACE` | Status of every repository in the workspace: branch, unpushed commits, changed files |
+| `MEM WORKSPACE CHECK` | Verify the layout, and that nothing in a public repository points to or contains the private one |
+| `MEM WORKSPACE INIT` | Detect the repositories and record which is which, with your confirmation |
+
+All three are local: the extension runs only read-only `git` commands and never touches the network. `INIT` writes one file, the description of your workspace, after you confirm it; it lists the setup steps still missing and performs none of them. `CHECK` also tells you when a knowledge base was once committed to a public repository, because removing it from the tree does not remove it from history.
+
+While it is active the agent knows which repository each file belongs to, moves tracked files with `git mv` so their history follows, and before calling a change done lists what is left to commit in each repository, in push order. It never commits or pushes unless you ask. The extension also ships a step-by-step guide for moving an existing knowledge base out of a public repository, history included, and recipes for Visual Studio and VS Code to see and commit every repository from one window.
+
 ## Configuration
 
 Project-specific configuration lives in `MEM.config.md`.
@@ -316,6 +332,7 @@ run_command: "auto-detect"
 default_branch: "auto-detect"
 agent_tmp_dir: ".tmp"
 agent_tmp_retention_days: 7
+agent_credit: false
 
 update_daily_log: true
 create_adr_for_decisions: true
@@ -521,6 +538,14 @@ Inside, a cache the agent reuses keeps a fixed name, like `build/`; everything e
 The folder also cleans itself. At the start of a session the agent deletes every entry nobody has used for 7 days — `agent_tmp_retention_days` changes the number, `0` turns it off. Age is measured from the last use, not from the date in the name, so a build the agent reuses every day is never deleted, and entries are removed whole: deleting old files from inside a build would break the next incremental build. This is safe because nothing in the folder is ever the only copy of a result, and the agent checks that before ending a session. The cleanup runs at the start of a session because an agent cannot promise to still be there at the end of one.
 
 When the agent has to build beside a locked build, it redirects the intermediates as well as the outputs. Moving only `bin/` leaves both builds writing the same `obj/`, which is where intermittent, unreproducible build errors come from. On .NET 8 and later, `dotnet build --artifacts-path .tmp/build` does both.
+
+## Agent credit
+
+Coding assistants often sign their work: a `Co-authored-by:` trailer naming the model, a "Generated with" line at the end of a pull request description. MEM tells the agent not to, by default. With `agent_credit: false` nothing the agent writes into version control or publishes for the project — commit and tag messages, pull request descriptions, release notes, code comments — carries a line crediting an AI agent, model or tool, even when the agent's own tooling adds one by default.
+
+It is a setting rather than a fixed rule because some organisations require the opposite: if your policy is to disclose AI assistance, set `agent_credit: true` and document the form you want. Either way, an explicit request for a specific commit wins, trailers for people you name are untouched, and existing history is never rewritten.
+
+One thing does not depend on the setting: the agent commits and pushes as you. It uses the name and email git is configured with and the credentials already set up for the remote, and never passes an `--author`, overrides `user.name` or `user.email`, or brings its own token. Disclosure, where you want it, is a line in the message, not a different author; only an explicit instruction from you, such as a dedicated bot account, changes that.
 
 ## When to update the knowledge base
 
