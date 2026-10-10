@@ -22,6 +22,38 @@ Before applying an upgrade, identify the current local MEM version and the targe
 1.0.0 through 1.0.2. A knowledge base on a base earlier than 1.0.3 should be re-initialized against the current
 MEM version rather than migrated step by step.
 
+## 1.1.7 -> 1.1.8
+
+### Summary
+
+The core gains one rule: with `agent_credit: false`, the default, the agent adds no line crediting an AI agent,
+model or tool to commits, tags, pull request descriptions, release notes or code comments; and, whatever the
+setting, it commits and pushes under the user's configured git identity and credentials. A new extension,
+`mem-workspace` 1.0.0, is available from the manifest. No existing extension changes.
+
+### Required actions
+
+- Replace `MEM.md` with version 1.1.8.
+- Add `agent_credit` to `MEM.config.md` only to change it. Omitting it is fine: the default is `false`.
+- If the project documents a policy of disclosing AI assistance in commits, **tell the user** that the new default
+  contradicts it and propose `agent_credit: true`. Do not set it unasked.
+- Do **not** rewrite existing history to remove credit lines already committed.
+- If a project file — a script, a hook, an assistant instruction file — sets a git identity naming an agent,
+  **tell the user**. Do not change it unasked: it may be a deliberate bot account.
+- Do **not** install `mem-workspace` during the upgrade. It is proposed the first time `MEM WORKSPACE` is used, like
+  any extension in the manifest.
+
+### Configuration changes
+
+- Added `agent_credit` (default `false`).
+- No option was removed or renamed.
+
+### Verification
+
+- `MEM.md` reports version 1.1.8.
+- `MEM.config.md` either omits `agent_credit` or sets it explicitly; it was not changed unasked.
+- `git config user.name` and `git config user.email` are unchanged by the upgrade.
+
 ## 1.1.6 -> 1.1.7
 
 ### Summary

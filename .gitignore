@@ -23,7 +23,7 @@ Desktop.ini
 # entries are a safety net, not the privacy mechanism: if any of them ever
 # appears here it means something has been copied into the wrong repository,
 # and being ignored is the safe outcome — private notes must not reach a
-# public remote. See MEM.Dev conventions/three-repository-layout.md.
+# public remote. See src/extensions/mem-workspace/index.md.
 # The wiki folder is deliberately NOT listed: its pages are publishable, so a
 # stray wiki/ here should surface in git status rather than go silent.
 private/

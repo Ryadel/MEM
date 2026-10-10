@@ -144,3 +144,29 @@ extensions/mem-toolbox/catalog/matplotlib.md
 
 Nothing under `extensions/mem-toolbox/custom/` is listed here, so project entries and per-host data survive every
 update — including the bootstrap entry, which the extension creates rather than the manifest.
+
+### mem-workspace
+
+- **version**: 1.0.0
+- **provides**: `WORKSPACE` (subcommands `CHECK`, `INIT`), and routing of files and commits across the
+  repositories of a workspace
+- **precedence**: base
+- **external actions**: no
+- **executable content**: no
+- **default mode**: read-only
+- **bootstrap entry**: `extensions/mem-workspace/custom/workspace.md`
+- **summary**: keep the knowledge base in a private repository beside a public one, check that nothing private
+  reaches the public side, and track commits across the repositories.
+- **base files**:
+
+```text
+extensions/mem-workspace/index.md
+extensions/mem-workspace/check.md
+extensions/mem-workspace/setup.md
+extensions/mem-workspace/WORKSPACE.template.md
+extensions/mem-workspace/adapters/visual-studio.md
+extensions/mem-workspace/adapters/vscode.md
+```
+
+Nothing under `extensions/mem-workspace/custom/` is listed here, so the workspace description survives every
+update.

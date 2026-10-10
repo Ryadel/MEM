@@ -4,6 +4,31 @@ All notable MEM changes are documented in this file.
 
 MEM uses `MAJOR.MINOR.BUILD` versioning. Version-to-version migration steps are documented in [MEM.upgrade.md](MEM.upgrade.md).
 
+## 1.1.8 - 2026-10-10
+
+### Added
+
+- Added **agent credit**. With `agent_credit: false`, the default, the agent adds no line crediting an AI agent,
+  model or tool — no `Co-authored-by:` trailer naming it, no "Generated with" line, no assistant signature — to
+  commit and tag messages, pull or merge request descriptions, release notes or code comments, including when its
+  own tooling adds one by default. An explicit request for a specific commit is honored; trailers crediting people
+  are unaffected; history is never rewritten.
+- Whatever `agent_credit` says, the agent commits, tags and pushes **as the user**: the configured git identity and
+  the configured credentials, never an `--author`, `user.name` / `user.email` override, `GIT_AUTHOR_*` /
+  `GIT_COMMITTER_*` variable or credential naming an agent, unless the user explicitly asks.
+- Added the **`mem-workspace`** extension, 1.0.0: the knowledge base in a private repository beside a public one,
+  under a workspace folder that is not a repository, with an optional wiki. It provides `MEM WORKSPACE`
+  (cross-repository status), `MEM WORKSPACE CHECK` (layout, and no private path or knowledge base file in a public
+  repository, including its history) and `MEM WORKSPACE INIT` (records the roles in `custom/workspace.md`, its
+  bootstrap entry, after confirmation). Read-only local `git` only, no external actions. While active, the agent
+  routes each file to its repository, moves tracked files with `git mv` and commits the move on its own, and lists
+  pending commits per repository in push order. Ships a setup and migration guide, including carrying history
+  across repositories, and adapters for Visual Studio and VS Code.
+
+### Configuration
+
+- Added `agent_credit: false`.
+
 ## 1.1.7 - 2026-10-09
 
 ### Added

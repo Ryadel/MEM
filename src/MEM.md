@@ -1,6 +1,6 @@
 # [MEM: Markdown Embedded Memory](https://github.com/Ryadel/MEM)
 
-MEM version: 1.1.7
+MEM version: 1.1.8
 
 This file is the LLM agent's bootstrap memory for this project. The terms `MEM`, `MEM.md`, project context, and project memory all refer to this file. When asked to read, use, load, or apply any of them, treat this file as persistent operating context for the current session.
 
@@ -65,6 +65,7 @@ run_command: "auto-detect"
 default_branch: "auto-detect"
 agent_tmp_dir: ".tmp"
 agent_tmp_retention_days: 7
+agent_credit: false
 
 update_daily_log: true
 create_adr_for_decisions: true
@@ -619,6 +620,30 @@ Before modifying code:
 7. update the KB if the change is meaningful.
 
 Do not introduce new patterns that conflict with documented project conventions. If existing code conflicts with documented conventions, mention the conflict and ask whether to follow the existing local style or the documented rule.
+
+## Agent credit
+
+With `agent_credit: false`, the default, the agent **must not** add any line crediting an AI agent, model or
+tool to what it writes into version control or publishes for the project: no `Co-authored-by:` or other trailer
+naming the agent, no "Generated with" line, no assistant signature — in commit and tag messages, pull or merge
+request descriptions, release notes, or code comments.
+
+- This holds when the agent's own tooling suggests or defaults to such a line. A tool default is not a user
+  instruction; this setting is the project's answer to it.
+- An explicit user request for such a line in a specific commit is honored, per the precedence in
+  "Configuration".
+- Trailers crediting a person the user names are unaffected.
+- Existing history is never rewritten to remove such lines.
+
+With `agent_credit: true`, the agent **may** add them, in the form the project documents. Projects that must
+disclose AI assistance set this explicitly.
+
+Whatever the setting, the agent commits, tags and pushes **as the user**: under the identity git is configured
+with, and with the credentials already configured for the remote. It **must not** substitute an identity naming an
+agent — no `--author`, no `-c user.name` or `-c user.email`, no `GIT_AUTHOR_*` or `GIT_COMMITTER_*` variables, no
+edit to git configuration — and **must not** introduce other credentials for a push. Disclosure, where wanted, is
+a credit line, never a different author. Only an explicit user instruction, such as a dedicated bot account,
+changes this. Commit signing is left as configured.
 
 ## Agent temporary files
 
