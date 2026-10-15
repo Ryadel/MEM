@@ -56,6 +56,23 @@ is **in your repository**, so an update arrives as a diff you can read in a pull
 anything while the runner stays small enough to actually read, which is a constraint on this extension rather
 than on you.
 
+### When executable content is not allowed
+
+Every `CLEAN` subcommand runs the runner. Without it this extension does nothing: no file is cleaned, tested or
+inspected, and a pipeline definition is only text. So when this extension is loaded or invoked, or the user asks
+to install it, and `extensions_allow_executable_content` is not `true` in `MEM.config.md` (absent means `false`),
+the agent **must not** run `runner/` and **must**:
+
+1. tell the user that the setting is off, and that MEM therefore forbids running this extension's code;
+2. say plainly what follows: **while the setting stays `false`, `mem-cleaner` is installed but does not work** —
+   no `CLEAN` subcommand can run, and nothing written by an agent is post-processed;
+3. ask for authorization to set `extensions_allow_executable_content: true`, naming `runner/*.py` as the code that
+   would then run, and noting that the setting covers every installed extension declaring executable content;
+4. change `MEM.config.md` only after an explicit yes. On a no, run nothing, and do not ask again in the same
+   session.
+
+Asking is not authorization: until the user answers yes, the setting and the runner stay as they are.
+
 Three properties keep it honest, and each is checkable:
 
 | Property | Why | How to check |

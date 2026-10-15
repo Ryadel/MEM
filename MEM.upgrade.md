@@ -22,6 +22,47 @@ Before applying an upgrade, identify the current local MEM version and the targe
 1.0.0 through 1.0.2. A knowledge base on a base earlier than 1.0.3 should be re-initialized against the current
 MEM version rather than migrated step by step.
 
+## 1.1.8 -> 1.2.0
+
+### Summary
+
+The core gains reading rules, under "When to read", "How to read": KB pages are read one at a time and only as the
+request needs; with a file-reading tool, never through shell commands such as `cat`; and a page still in the
+conversation is not read again unless it changed, the context was compacted, its exact text is needed, or under
+`MEM FORCE`. A second subsection, "Delegating exploratory work", asks agents that can use subagents to delegate
+exploration with large raw output and keep only its conclusions. Under "Extension rules", a new subsection, "Help
+requests", makes a prompt that names an extension and asks nothing else of it — `mem-cleaner`, `mem-cleaner ?`,
+`explain mem-cleaner` — return that extension's full help, read-only; `MEM HELP <extension-id>` is its explicit
+form. A third subsection, "Offering the catalogue", asks the user which extensions to install — at first-time
+initialization and after an update that brings an extension not registered in `EXT.md` — with one confirmation
+naming the files before anything is written, and records the ones not chosen as `declined`. Two extensions join the
+manifest, `mem-stats` 0.1.0 and `mem-optimize` 0.1.0, both shipping executable content; they are offered, never
+installed by the upgrade. No configuration or layout change, and no change to existing extensions.
+
+### Required actions
+
+- Replace `MEM.md` with version 1.2.0.
+- If a project file — an assistant instruction file, a script, a hook — tells the agent to read KB pages through the
+  shell (for example "`cat` the index"), **tell the user** that it now contradicts `MEM.md`, and propose rewording it.
+  Do not change it unasked.
+- Unless `extensions_enabled` is false, offer the catalogue as "Offering the catalogue" in `MEM.md` describes: on an
+  existing installation, every manifest extension not registered in `EXT.md` is offered once, now.
+
+### Configuration changes
+
+- None. No option was added, removed or renamed.
+
+### Verification
+
+- `MEM.md` reports version 1.2.0.
+- `MEM.md` contains the "How to read" and "Delegating exploratory work" subsections under "When to read".
+- `MEM.md` contains the "Help requests" subsection under "Extension rules", and its `MEM HELP` row accepts an
+  optional extension id.
+- `MEM.md` contains "Offering the catalogue" under "Extension rules".
+- After the offer, every manifest extension is registered in `EXT.md` (`active` or `declined`), unless the user
+  dismissed the question or the manifest could not be fetched.
+- `MEM.config.md` is unchanged by the upgrade.
+
 ## 1.1.7 -> 1.1.8
 
 ### Summary

@@ -68,7 +68,8 @@ It is **not** a base file and is never written by an update: listing it here onl
 `executable content` declares whether any base file is **run** rather than read. It governs a separate approval:
 installing or updating such an extension writes code into the consuming repository, and the confirmation must
 name those files as executable. See `MEM.md`, "Instruction text and executable content". An extension declaring
-`yes` is not proposed at all when `extensions_allow_executable_content` is false.
+`yes` is not proposed when `extensions_allow_executable_content` is false, except in the catalogue offer, which
+lists it as needing that setting — see `MEM.md`, "Offering the catalogue".
 
 ## Catalogue
 
@@ -170,3 +171,53 @@ extensions/mem-workspace/adapters/vscode.md
 
 Nothing under `extensions/mem-workspace/custom/` is listed here, so the workspace description survives every
 update.
+
+### mem-stats
+
+- **version**: 0.1.0
+- **provides**: `STATS` (subcommands `INIT`, `INVENTORY`, `READ`, `INGEST`, `REPORT`, `WATCH`, `PRUNE`), and
+  usage measurement for Claude Code and Codex
+- **precedence**: base
+- **external actions**: no
+- **executable content**: yes — `runner/stats.py`, `runner/claude_code.py`, `runner/codex.py` (Python 3.11+,
+  standard library; 3.14+ to read Codex rollouts older than a week)
+- **default mode**: may-write
+- **summary**: measure what agent sessions consume, from the client's local logs — tokens per request, cache
+  reads and rewrites, what fills the context (MEM included), compactions — into a local ledger of counts.
+- **base files**:
+
+```text
+extensions/mem-stats/index.md
+extensions/mem-stats/runner/stats.py
+extensions/mem-stats/runner/claude_code.py
+extensions/mem-stats/runner/codex.py
+extensions/mem-stats/prices/anthropic-api-2026-10-15.json
+```
+
+The ledger and any project price card live under `extensions/mem-stats/custom/`, never listed here.
+
+### mem-optimize
+
+- **version**: 0.1.0
+- **provides**: `OPTIMIZE` (subcommands `SETUP`, `STATUS`, `RESET`, `PAGES`), and context-lifecycle hooks for
+  Claude Code and Codex
+- **precedence**: base
+- **external actions**: no
+- **executable content**: yes — `runner/hook_prompt.py`, `runner/hook_session.py`, `runner/wizard.py`,
+  `runner/pages.py` (Python 3.11+, standard library)
+- **default mode**: may-write
+- **summary**: keep long sessions from wasting tokens — advice when a restart pays, a guided restart that carries
+  the work over, a stop before a prompt rewrites an expired cache, re-orientation after a compaction, and the
+  knowledge base pages worth lightening; installed by a setup wizard.
+- **base files**:
+
+```text
+extensions/mem-optimize/index.md
+extensions/mem-optimize/runner/hook_prompt.py
+extensions/mem-optimize/runner/hook_session.py
+extensions/mem-optimize/runner/wizard.py
+extensions/mem-optimize/runner/pages.py
+```
+
+The setup log, settings backups and runtime state live under `extensions/mem-optimize/custom/`, never listed here;
+the runtime state folder carries its own `.gitignore`.

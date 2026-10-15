@@ -237,7 +237,7 @@ These are available without installing anything:
 
 | Command | Purpose |
 |---|---|
-| `MEM HELP` | List the available commands |
+| `MEM HELP` | List the available commands; `MEM HELP <extension-id>` explains one extension |
 | `MEM STATUS` | Report MEM version, `KB_ROOT`, configuration in effect, registered extensions |
 | `MEM INIT` | Run first-time initialization |
 | `MEM UPDATE` | Update `MEM.md` from `mem_update_url` and apply upgrade notes |
@@ -299,6 +299,22 @@ The `mem-workspace` extension describes the alternative: the knowledge base in a
 | `MEM WORKSPACE INIT` | Detect the repositories and record which is which, with your confirmation |
 
 All three are local: the extension runs only read-only `git` commands and never touches the network. `INIT` writes one file, the description of your workspace, after you confirm it; it lists the setup steps still missing and performs none of them. `CHECK` also tells you when a knowledge base was once committed to a public repository, because removing it from the tree does not remove it from history.
+
+### Measurement from `mem-stats`
+
+Agents re-send the whole conversation with every request, so what a session costs is mostly what it carries, not what it adds. The `mem-stats` extension measures that from the client's own local logs — Claude Code transcripts and Codex rollouts — into a local SQLite ledger that holds counts, never content: tokens per request (new, read from the cache, rewritten into it, output), what fills the context (MEM and each extension, tool results, tool definitions and other fixed overhead), where the cache was rebuilt and why (a long pause, a model switch, a compaction), and how often the client compacted the conversation.
+
+| Command | Purpose |
+|---|---|
+| `MEM STATS INGEST` | Read the client's logs into the ledger |
+| `MEM STATS REPORT` | Usage, context composition, fixed overhead, KB pages, cache breaks, compactions; by period |
+| `MEM STATS PRUNE` | Delete sessions older than a date |
+
+It makes no model calls and sends nothing anywhere. Prices are optional: a dated card values the tokens at API rates, which on a subscription is a valuation, not what you pay.
+
+### Shorter sessions with `mem-optimize`
+
+`mem-optimize` acts on what `mem-stats` measures, through the client's hooks (Claude Code and Codex). It stays silent until a session grows large, then has the agent propose a guided restart at a natural breakpoint: the agent updates the knowledge base, writes a short handoff note, and the fresh session after `/clear` starts from it. After a pause longer than the prompt cache lasts, it stops the first prompt once — sending it would rewrite the whole context into the cache — and offers to carry the message into a fresh session instead. After the client compacts a conversation, it points the agent back to the knowledge base, since the summary keeps the work in progress but loses the pages read before. `MEM OPTIMIZE PAGES` lists the knowledge base pages that weigh most on your sessions, with a maintenance suggestion for each, and changes nothing. A setup wizard (`MEM OPTIMIZE SETUP`) asks which of these you want, for which clients and projects, shows every file it would change, and writes only after you confirm; `MEM OPTIMIZE RESET` removes what it added.
 
 While it is active the agent knows which repository each file belongs to, moves tracked files with `git mv` so their history follows, and before calling a change done lists what is left to commit in each repository, in push order. It never commits or pushes unless you ask. The extension also ships a step-by-step guide for moving an existing knowledge base out of a public repository, history included, and recipes for Visual Studio and VS Code to see and commit every repository from one window.
 
@@ -454,6 +470,8 @@ The base layer points to `custom/index.md`, so the customisation surface is alwa
 
 Each extension declares whether base or custom wins when both define the same entry, because the right answer differs by extension: shadowing a command is a hijack risk, while overriding a reference entry with local knowledge is usually correct.
 
+To learn what an extension does, just name it. A prompt made of the extension's name alone, or with a word asking for help or an explanation — `mem-cleaner`, `help mem-cleaner`, `mem-cleaner ?`, `mem-cleaner --help`, `explain mem-cleaner`, in any language — gets its full help: what it is for, its commands, its configuration options with the values in effect, and its status. Answering changes nothing. A prompt that asks the extension to *do* something is handled normally.
+
 ### The manifest, and what authorises an extension
 
 MEM publishes a manifest listing the extensions it distributes, what each one provides, and the exact files that make it up. That file list is also the update set: an update writes only what the manifest names, which is why your `custom/` folders and your `EXT.md` are safe by construction rather than by a rule someone has to remember.
@@ -466,6 +484,12 @@ That splits cleanly into two behaviours:
 - **using** an extension you already registered needs disclosure, not another prompt. The agent names it on the acknowledgement line, and says when an extension is one you wrote rather than one MEM distributes.
 
 An extension outside the manifest is perfectly legitimate — writing your own is the point of the custom layer. It simply gets no automatic offer to install and no borrowed trust.
+
+### Choosing extensions
+
+When MEM is first set up, and whenever an update brings an extension you have never been asked about, the agent asks one multiple-choice question: *which extensions do you want to install?* — noting that some may install additional software. Each option says what the extension does and whether it reaches outside the repository or ships code. Extensions that ship code are listed even while code is disabled in your configuration; choosing one leads to a question about enabling it.
+
+Your choice is followed by a single confirmation listing every file to be written and where it comes from; nothing is written before it. The extensions you leave out are recorded as declined in `EXT.md` and are not offered again — you can still install one later by asking.
 
 ### Keeping extensions current
 
@@ -524,6 +548,8 @@ A MEM-aware agent should follow this workflow:
 7. inspect source code before making implementation claims;
 8. perform the requested work;
 9. update the knowledge base when meaningful, durable knowledge was discovered or produced.
+
+Everything the agent reads stays in the conversation and is sent again with every later request, so MEM asks it to read economically: one page at a time and only what the request needs; with its own file-reading tool rather than `cat` or other shell commands, whose output can be altered by filters such as compression hooks and can bundle far more than needed (searching with `grep` is fine); and not to read again a page that is still in the conversation, unless it changed, the context was compacted, its exact text is needed, or under `MEM FORCE`. For the same reason, an agent that can use subagents hands them exploratory work with large raw output — broad searches, reading many files, measurements — and keeps only the conclusions, which go to the knowledge base when they are durable.
 
 ## Agent temporary files
 

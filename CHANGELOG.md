@@ -4,6 +4,53 @@ All notable MEM changes are documented in this file.
 
 MEM uses `MAJOR.MINOR.BUILD` versioning. Version-to-version migration steps are documented in [MEM.upgrade.md](MEM.upgrade.md).
 
+## 1.2.0 - 2026-10-15
+
+### Added
+
+- Added **how to read** the knowledge base, under "When to read". Every page read stays in the conversation and is
+  sent again with every later request, so the agent reads KB pages one at a time and only those the request needs.
+- When the agent has a file-reading tool it **must** read KB pages with it, and **must not** read their contents
+  through shell commands (`cat`, `type`, `Get-Content`, `head`, `sed` and the like): shell output may be altered by
+  filters such as compression hooks, and one command can concatenate far more than needed. Searching from the shell,
+  for example with `grep`, stays allowed; without a file-reading tool, one page per shell command.
+- The agent does not re-read a page whose content is still in the conversation, except when the page changed since,
+  after the context was compacted, when its exact text is needed for a quote or an edit, or under `MEM FORCE`.
+- Added **delegating exploratory work**. When the agent can delegate to a subagent, it should hand off work whose raw
+  output is large and whose value is a conclusion — broad searches, reading many files, measurements, research — so
+  that raw output is not resent with every later request. The subagent returns everything needed to decide and where
+  its raw material is; durable conclusions go to the KB. Small tasks, conversation-dependent edits and decisions with
+  the user stay in the main session.
+- Added **help requests** for extensions, under "Extension rules". A prompt that names an extension and asks nothing
+  else of it — the name alone, or with a word asking for help or an explanation, such as `mem-cleaner`,
+  `help mem-cleaner`, `mem-cleaner ?`, `mem-cleaner --help` or `explain mem-cleaner`, in any language or case — gets
+  that extension's full help: purpose, commands, configuration options with the values in effect, and status. It is
+  read-only, and recognized by intent rather than by the uppercase command grammar.
+- Added **offering the catalogue**. At first-time initialization, and after an update when the manifest declares an
+  extension not registered in `EXT.md`, the agent asks one multiple-choice question — "Which extensions do you want
+  to install? (Some extensions may install additional software.)" — listing every unregistered extension with its
+  description, external actions and executable content. One confirmation naming the files and the source URL
+  follows the choice; extensions not chosen are registered `declined` and not offered again.
+- Added the **`mem-stats`** extension, 0.1.0: measures what agent sessions consume from Claude Code transcripts and
+  Codex rollouts — tokens per request, cache reads and rewrites with their likely cause, context composition, fixed
+  overhead, compactions — into a local ledger of counts. Ships executable content.
+- Added the **`mem-optimize`** extension, 0.1.0: hooks for Claude Code and Codex that advise a guided restart when a
+  session grows large, carry the work into the fresh session after `/clear`, and stop the first prompt after a pause
+  longer than the prompt cache lasts; after a compaction, it points the agent back to the knowledge base; and
+  `MEM OPTIMIZE PAGES` lists the knowledge base pages that weigh most on sessions, with maintenance suggestions,
+  changing nothing. Installed by a setup wizard. Ships executable content.
+
+### Changed
+
+- `MEM HELP` accepts an optional extension id: `MEM HELP <extension-id>` is the explicit form of a help request.
+- An extension declaring executable content may now be **listed** in the catalogue offer while
+  `extensions_allow_executable_content` is false, marked as needing the setting; choosing it leads to a request to
+  enable it. Outside the offer, such an extension is still never proposed.
+
+### Configuration
+
+- No changes.
+
 ## 1.1.8 - 2026-10-10
 
 ### Added

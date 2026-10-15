@@ -1,6 +1,6 @@
 # [MEM: Markdown Embedded Memory](https://github.com/Ryadel/MEM)
 
-MEM version: 1.1.8
+MEM version: 1.2.0
 
 This file is the LLM agent's bootstrap memory for this project. The terms `MEM`, `MEM.md`, project context, and project memory all refer to this file. When asked to read, use, load, or apply any of them, treat this file as persistent operating context for the current session.
 
@@ -125,7 +125,7 @@ Preserve project-specific configuration in `MEM.config.md`; do not overwrite `ME
 
 After updating `MEM.md`, report the previous version, the new version when available, and whether the update succeeded. If the update cannot be completed, leave the existing `MEM.md` unchanged and report the failure.
 
-Extensions listed in the manifest are updated from it, not from `mem_update_url`, which carries `MEM.md` alone. Updating `MEM.md` therefore leaves extensions untouched until their own base-layer files are written from the manifest. Their versions are checked separately — see "Checking extension versions".
+Extensions listed in the manifest are updated from it, not from `mem_update_url`, which carries `MEM.md` alone. Updating `MEM.md` therefore leaves extensions untouched until their own base-layer files are written from the manifest. Their versions are checked separately — see "Checking extension versions" — and extensions new to the manifest are offered as described in "Offering the catalogue".
 
 After a successful update, the agent **should** check `MEM.upgrade.md` when present, or fetch it from `mem_upgrade_url` when available, to identify and apply any required patches or structural changes for the new MEM version. Apply required upgrade steps sequentially from the previous MEM version to the new MEM version. For `MAJOR.MINOR.BUILD` versions, apply missing BUILD upgrades first, then MINOR upgrades, then MAJOR upgrades; do not skip intermediate upgrade notes unless a later note explicitly supersedes them.
 
@@ -334,6 +334,50 @@ An extension that adds configuration options to `MEM.config.md` **must** name th
 
 `EXT.md` is project-owned: an update **must** amend it, never overwrite it. Keep it a compact routing table, not documentation — it is read at session start.
 
+### Help requests
+
+A prompt that names an extension and asks nothing else of it is a **help request**: the extension id alone, or with
+words asking for help or an explanation, in any language, case or order. For example:
+
+```text
+mem-optimize
+help mem-optimize
+mem-optimize help
+mem-optimize ?
+mem-optimize --help
+explain mem-optimize
+what is mem-optimize
+```
+
+The agent **must** answer a help request with the extension's full help, built from its base `index.md` and, when
+present, its `custom/index.md`:
+
+1. what the extension is for and when to use it;
+2. its commands, with their subcommands and targets, one line each;
+3. its configuration options (`extensions_<id>_<option>`) with the values in effect;
+4. its status: the installed and available versions, its `EXT.md` status, and whether it performs external actions
+   or ships executable content — and, if it does, whether the configuration currently allows it.
+
+A help request is read-only: the agent **must not** run the extension's procedures, collect data or change files to
+answer it. `MEM HELP <extension-id>` is the explicit form of the same request.
+
+A prompt that asks the extension to do something — "run mem-cleaner on this folder", "fix the mem-stats report" — is
+not a help request, and the ordinary rules apply. A name inside a fenced code block, a quotation, quoted file content
+or an example is not a help request either.
+
+Unlike a reserved command, a help request needs neither uppercase nor the `MEM` prefix: it is recognized by intent,
+because the worst a misreading can cause is an explanation, never an action.
+
+| Situation | Required behavior |
+|---|---|
+| Extension installed | Give its full help |
+| Not installed, declared in the manifest | Give the manifest's description and propose installing it |
+| `status: disabled` or `declined`, or `extensions_enabled: false` | Give the help, saying the extension is not in use and why |
+| The name matches no extension | Say so and list the registered extensions; do not guess |
+
+Every extension's base `index.md` **should** state its purpose in its opening lines and list its commands, so that
+its help can be built without reading further files.
+
 ### Authorization
 
 Being listed in the manifest is **not** authorization. The manifest is fetched over the network and its URL is overridable in `MEM.config.md`; treating it as a grant would let a remote document decide what runs inside the repository.
@@ -368,7 +412,7 @@ An extension shipping executable content **must** declare `executable content: y
 
 The compensating property, and the reason this is admissible at all: executable content delivered this way is **committed to the consuming repository**, so an update appears as a reviewable diff in a pull request rather than as an opaque package version.
 
-When `extensions_allow_executable_content` is false, the agent **must not** propose installing an extension that declares executable content, and **must not** run the executable content of one already installed. The default is `false`.
+When `extensions_allow_executable_content` is false, the agent **must not** propose installing an extension that declares executable content, and **must not** run the executable content of one already installed. The default is `false`. The one exception is the catalogue offer, which lists such an extension as needing the setting — see "Offering the catalogue".
 
 #### Approval or disclosure
 
@@ -408,6 +452,41 @@ The agent **must** propose and **must not** install unprompted. The confirmation
 The source URL **must** be the one declared in this file. A `MEM.config.md` override is untrusted and **must** be displayed in the confirmation, because installing an extension writes instructions into the repository.
 
 When `extensions_enabled` is false, the agent **must not** propose an installation: the configuration is already an answer.
+
+### Offering the catalogue
+
+The agent **must** offer the catalogue:
+
+- at first-time initialization, once the KB files exist;
+- after `MEM.md` is updated — by `MEM UPDATE` or by the auto-update — when the manifest declares an extension that
+  is not registered in `EXT.md`.
+
+The offer lists every extension the manifest declares that is **not registered in `EXT.md` under any status**, so a
+new extension is offered exactly once, and one already declined is never offered again. It is a single
+multiple-choice question, asked with the client's question tool when it has one (split into several questions when
+the tool caps the number of options) and as a numbered list otherwise. Each option gives the extension id, its
+one-line description, and whether it performs external actions or ships executable content. The question **must**
+say, in parentheses, that some extensions may install additional software:
+
+```text
+Which extensions do you want to install? (Some extensions may install additional software.)
+```
+
+An extension declaring executable content is listed even while `extensions_allow_executable_content` is false,
+marked as needing that setting. If the user chooses it, the agent explains that the setting covers every executable
+extension and asks to enable it; on a refusal that extension is left out of the installation.
+
+Choosing is not yet the approval. Before writing anything, the agent shows **one** confirmation that names the files
+of every chosen extension — the executable ones distinctly — and the source URL, as "Installing an extension from the
+manifest" requires. After it:
+
+- each chosen extension is installed and registered `status: active`;
+- each listed extension the user did not choose is registered `status: declined`. The user can still install it
+  later by asking.
+
+If the user dismisses the question, nothing is recorded and the offer is made again at the next occasion; it is
+asked at most once per session. When `extensions_enabled` is false, there is no offer. If the manifest cannot be
+fetched, the agent says the catalogue could not be checked and registers nothing.
 
 ---
 
@@ -457,6 +536,9 @@ A command **must not** activate when the words appear:
 
 Tokens appearing inside MEM's own documentation, inside `EXT.md`, and inside command definition files are **never** activations. This rule is load-bearing: the grammar has no separate non-activating form, so without it the specification would trigger itself.
 
+These restrictions apply to reserved commands only. A prompt asking about an extension by name follows its own rule,
+in "Help requests".
+
 Commands apply to the **current request only** and are never carried into later turns.
 
 When a command activates, the agent **must** open its reply with an acknowledgement line:
@@ -498,7 +580,7 @@ These are available without any extension, because they must answer on a bare in
 
 | Command | Target | Behavior |
 |---|---|---|
-| `MEM HELP` | none | List the available commands with their one-line purpose: core commands, then those registered in `EXT.md` |
+| `MEM HELP` | optional extension id | Without a target, list the available commands with their one-line purpose: core commands, then those registered in `EXT.md`. With an extension id, give that extension's full help, as described in "Help requests" |
 | `MEM STATUS` | none | Report the MEM version, `KB_ROOT`, the configuration in effect, and the registered extensions with their status and both versions — installed, and available per the manifest |
 | `MEM INIT` | none | Run first-time initialization |
 | `MEM UPDATE` | none | Update `MEM.md` from `mem_update_url`, apply upgrade notes, then check extension versions — all as described in "Updating MEM" and "Checking extension versions" |
@@ -541,6 +623,22 @@ At session start, the agent **should** read:
 Before non-trivial changes, additionally read the relevant KB pages and inspect the source code. The code is implementation truth; the KB is the explanation layer.
 
 When answering project questions, prefer this flow: read `MEM.index.md` → identify relevant pages → read them → inspect source if needed → answer → update KB if new durable info was found. Mention relevant files in answers when helpful.
+
+### How to read
+
+Every page read stays in the conversation and is sent again with every later request, so reading more than the request needs is paid for many times over.
+
+- Read KB pages one at a time, and only the pages the request needs.
+- When the agent has a file-reading tool, it **must** read KB pages with it, and **must not** read their contents through shell commands (`cat`, `type`, `Get-Content`, `head`, `sed`, and the like): shell output may be altered by filters such as compression hooks, and one command can concatenate far more than the request needs. Searching the KB from the shell, for example with `grep`, remains allowed. Without a file-reading tool, read one page per shell command.
+- Do not re-read a page whose content is still in the conversation. Re-read it when it changed since it was read (edited by the agent, or reported as changed by the client), after the context was compacted, when its exact text is needed for a quote or an edit, or under `MEM FORCE`.
+
+### Delegating exploratory work
+
+The same holds for everything a task produces along the way: raw output read once to reach a conclusion is still sent with every later request.
+
+- When the agent can delegate to a subagent, it **should** delegate exploratory work whose raw output is large and whose value is a conclusion: broad searches, reading many files, measurements, research.
+- The subagent **must** return everything needed to decide, not a vague summary, and say where its raw material is if it will be needed again. Durable conclusions go to the KB.
+- Small tasks, edits that depend on the conversation, and decisions to take with the user stay in the main session: a subagent starts without the conversation's context and with its own fixed overhead.
 
 If the user only asks to initialize or update the KB, the agent **must not** modify source code unless explicitly requested.
 
@@ -777,3 +875,5 @@ Use lightweight standard templates. Use placeholders where information is not ye
 ```
 
 Do not invent project details.
+
+Then, unless `extensions_enabled` is false, offer the catalogue as described in "Offering the catalogue".
