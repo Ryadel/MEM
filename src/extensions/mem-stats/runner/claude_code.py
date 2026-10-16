@@ -6,6 +6,7 @@ Read-only, no network. Attribution needs at least one KB root (a folder holding 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -25,7 +26,8 @@ USAGE_KEYS = ("input_tokens", "cache_read_input_tokens", "cache_creation_input_t
 # new method name keeps the old estimates for comparison.
 METHOD = "claude-code-positional/1"
 # Bump when the events derived for a settled request change: incremental runs recompute stored requests only when
-# the revision (or the run's context: KB roots, attribution, composition, tokenizer) differs from the stored one.
+# the revision (or the run's context: which KB roots, attribution, composition, which encoding) differs from the
+# stored one.
 REVISION = 2
 WRITE_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
 PATH_KEYS = ("file_path", "notebook_path", "path")
@@ -803,6 +805,11 @@ def project_kb_roots(files):
     return find_kb_roots(folder) if folder and Path(folder).is_dir() else []
 
 
+def identity(*values):
+    """A non-negative integer naming these values (the coverage context holds integer counts only)."""
+    return int(hashlib.sha256("\n".join(values).encode("utf-8")).hexdigest()[:12], 16)
+
+
 def stored_requests(collector, context, attribution, composition):
     """stored(session, request_id): True when the ledger holds every event this run would derive for the request,
     written by a run with the same context (read from the session's coverage event)."""
@@ -902,9 +909,12 @@ def main():
                 find_kb_roots(args.workspace) if args.workspace else []) + (
                 project_kb_roots(files_of) if args.find_kb else [])
             attributor = Attributor(roots, args.encoding) if roots else None
+            # Which KB roots and which encoding, not only how many: estimates made with another KB or tokenizer must
+            # be recomputed, never skipped as already stored.
             context = {"revision": REVISION, "kb_roots": len(attributor.roots) if attributor else 0,
+                       "kb_roots_id": identity(*sorted(attributor.roots)) if attributor else 0,
                        "attribution": int(bool(attributor)), "composition": int(not args.no_composition),
-                       "tokenized": int(bool(args.encoding))}
+                       "encoding_id": identity(args.encoding) if args.encoding else 0}
             stored = None if args.full or not collector else stored_requests(collector, context, bool(attributor),
                                                                               not args.no_composition)
             for path in files_of:

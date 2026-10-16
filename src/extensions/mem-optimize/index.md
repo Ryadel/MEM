@@ -47,7 +47,7 @@ run any runner and **must**:
 1. tell the user that the setting is off, and that MEM therefore forbids running this extension's code;
 2. say plainly what follows: **while the setting stays `false`, mem-optimize is installed but does nothing** — no
    advice, no restart carry-over, no stop after a long pause, and the wizard cannot run;
-3. ask for authorization to set `extensions_allow_executable_content: true`, naming the three runners as the code
+3. ask for authorization to set `extensions_allow_executable_content: true`, naming the four runners as the code
    that would then run, and noting that the setting covers every installed extension declaring executable content;
 4. change `MEM.config.md` only after an explicit yes. On a no, run nothing and do not ask again in the session.
 
