@@ -82,6 +82,11 @@ plainly**: what the option does, what it costs, what changes if refused. Write n
    tool only when it has no calls, or when its `last_called` is more than 30 days old; never pre-select one called
    in the last 30 days. For each option, say **what the tool does**, its definition weight (`definition_input_share_percent`),
    its calls and `last_called`, and what the user loses by disabling it. Never disable one not selected.
+
+   Always include an explicit **"Disable none"** option, so that keeping every tool takes one click rather than a
+   typed answer; it excludes the others. When the client's question tool caps the options per question (four in
+   `AskUserQuestion`), split the tools over several questions, heaviest first, each keeping room for that option
+   ("none of these").
 5. **Scope, one question per enabled element** (advisor, restart, stop, each tool, report permissions) — all projects
    (recommended) · only this project. All projects writes the user settings; only this project writes
    `<workspace>/.claude/settings.local.json`.
