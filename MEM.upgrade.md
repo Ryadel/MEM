@@ -22,6 +22,32 @@ Before applying an upgrade, identify the current local MEM version and the targe
 1.0.0 through 1.0.2. A knowledge base on a base earlier than 1.0.3 should be re-initialized against the current
 MEM version rather than migrated step by step.
 
+## 1.2.1 -> 1.2.2
+
+### Summary
+
+A build release for one extension. `mem-optimize` 0.1.2 carries the guided restart into a new conversation opened
+instead of `/clear` (SessionStart source `startup`), but only from a recent note left by the same project, and a held
+prompt only in the folder it was stopped in. The core text is unchanged apart from the version.
+
+### Required actions
+
+- Replace `MEM.md` with version 1.2.2.
+- The extension version check now reports `mem-optimize` 0.1.2 where it is installed. Propose the update as usual;
+  never apply it without approval.
+- After `mem-optimize` is updated: run `MEM OPTIMIZE SETUP` again with the recorded answers, so that the restart hook
+  is also registered for the `startup` source. On Codex, tell the user to approve the changed hooks with `/hooks`.
+
+### Configuration changes
+
+- None.
+
+### Verification
+
+- `MEM.md` reports version 1.2.2.
+- Where the guided restart is enabled, the client's settings file (`.claude/settings*.json` or `.codex/hooks.json`)
+  holds the same `hook_session.py` command under two `SessionStart` groups, matchers `clear` and `startup`.
+
 ## 1.2.0 -> 1.2.1
 
 ### Summary

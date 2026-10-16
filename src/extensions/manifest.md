@@ -205,7 +205,7 @@ repository, in `~/.mem/mem-stats/state/`.
 
 ### mem-optimize
 
-- **version**: 0.1.1
+- **version**: 0.1.2
 - **provides**: `OPTIMIZE` (subcommands `SETUP`, `STATUS`, `RESET`, `PAGES`), and context-lifecycle hooks for
   Claude Code and Codex
 - **precedence**: base

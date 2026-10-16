@@ -4,6 +4,23 @@ All notable MEM changes are documented in this file.
 
 MEM uses `MAJOR.MINOR.BUILD` versioning. Version-to-version migration steps are documented in [MEM.upgrade.md](MEM.upgrade.md).
 
+## 1.2.2 - 2026-10-16
+
+### Changed
+
+- **`mem-optimize` 0.1.2**: the guided restart also works when a new conversation is opened instead of typing
+  `/clear` (the VS Code new-chat button, Codex `/new`: SessionStart source `startup`). Such a conversation takes the
+  handoff note only within 15 minutes of it being written and only when another session of the same project was
+  active since (Claude Code: the same transcript folder; Codex: a rollout with the same working directory); a held
+  prompt only in the folder it was stopped in, which the held prompt now records. The setup installs the restart
+  hook for both sources. A new session's first prompt, whose transcript does not exist yet, is logged as
+  `no-transcript` instead of an error.
+- `MEM.md` gets version 1.2.2 so that existing installations see the extension update; its text is unchanged.
+
+### Configuration
+
+- No option was added, removed or renamed.
+
 ## 1.2.1 - 2026-10-16
 
 ### Changed

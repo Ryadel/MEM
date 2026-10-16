@@ -9,7 +9,8 @@ advice: the VS Code extension does not show a hook's systemMessage.
 
 With --pause-stop, a prompt sent after the prompt cache has expired, on a context of at least --pause-min tokens, is
 blocked once: sending it would re-write the whole context into the cache. Its text is kept in --held for the
-SessionStart hook to carry into a fresh session after /clear, and the user is told, in --lang, how to choose: /clear
+SessionStart hook to carry into a fresh session after /clear (or a new conversation in the same folder), and the user
+is told, in --lang, how to choose: /clear
 (recommended) or the same message again within --resend-window seconds, which then passes. Since the model is not
 called, no agent can write a handoff note: instead a mechanical snapshot of the last exchanges (the user's prompts,
 the agent's final replies, the files it changed), at most --snapshot-chars long, is kept with the held prompt.
@@ -292,6 +293,9 @@ def main():
         event = json.loads(sys.stdin.buffer.read().decode("utf-8"))
         session = event.get("session_id") or ""
         entry["session"] = session
+        if not Path(event["transcript_path"]).is_file():  # a new session's first prompt: nothing written yet
+            entry["decision"] = "no-transcript"
+            return
         record = last_usage(Path(event["transcript_path"]), args.codex_ttl)
         if record is None:
             entry["decision"] = "no-usage"
@@ -318,7 +322,8 @@ def main():
             else:
                 card = card_for(model, usage, args.prices)
                 cost = rate_cost(card, "cache_write_1h" if ttl == 3600 else "cache_write", tokens)
-                held = {"session": session, "at": now, "prompt": event.get("prompt") or ""}
+                # cwd: a new conversation (not /clear) takes the prompt only in the same folder
+                held = {"session": session, "at": now, "prompt": event.get("prompt") or "", "cwd": event.get("cwd")}
                 if args.snapshot_chars > 0:
                     try:
                         held["snapshot"] = snapshot(Path(event["transcript_path"]), args.snapshot_chars)

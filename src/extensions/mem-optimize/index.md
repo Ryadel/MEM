@@ -5,7 +5,7 @@ grown large, or that resumes after the prompt cache expired, costs far more than
 knowledge base. mem-optimize watches the session's size, tells the agent when a restart pays, carries the work into
 the fresh session, and stops the first prompt after a long pause before it rewrites the whole context into the cache.
 
-- **version**: 0.1.1
+- **version**: 0.1.2
 - **provides**: `OPTIMIZE`
 - **subcommands**: `SETUP`, `STATUS`, `RESET`, `PAGES` - closed set
 - **precedence**: base
@@ -121,12 +121,17 @@ the middle of a change. Only after the user agrees: update the KB's resume point
 write the handoff note to the path the advisor names (state, decisions made, next step, files to read; under 8,000
 characters); then ask the user to type `/clear` and send any message. Never write the note unasked.
 
+A new conversation opened instead of `/clear` (the VS Code new-chat button, Codex `/new`: source `startup`) also
+receives the note, but only within 15 minutes of it being written and only when another session of the same project
+was active since — the hook cannot tell otherwise whose note it is. A held message passes the same way only in the
+folder it was stopped in. `/clear` stays the recommended way.
+
 ## Files
 
 | Path | Content |
 |---|---|
 | `runner/hook_prompt.py` | `UserPromptSubmit` hook: advisor and long-pause stop |
-| `runner/hook_session.py` | `SessionStart` hook (`clear`): injects the handoff note, or the held message and its snapshot |
+| `runner/hook_session.py` | `SessionStart` hook (`clear`, `startup`): injects the handoff note, or the held message and its snapshot |
 | `runner/wizard.py` | `plan`, `apply`, `reset`, `status` |
 | `runner/pages.py` | `MEM OPTIMIZE PAGES`: heavy pages from a mem-stats report, with suggestions |
 | `custom/setup-log.json`, `custom/backups/` | What setup added, and the settings files as they were |

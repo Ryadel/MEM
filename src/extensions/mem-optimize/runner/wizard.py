@@ -188,7 +188,9 @@ def merged(settings, want, recorded):
     """settings with exactly `want` from mem-optimize; returns (settings, entries it added to deny/allow)."""
     settings = strip(json.loads(json.dumps(settings)), recorded)
     hooks = settings.setdefault("hooks", {})
+    # The restart hook runs on /clear and on a new conversation (startup); it decides itself whether a note is ours.
     for key, event, matcher in (("UserPromptSubmit", "UserPromptSubmit", None), ("SessionStart", "SessionStart", "clear"),
+                                ("SessionStart", "SessionStart", "startup"),
                                 ("SessionStartCompact", "SessionStart", "compact")):
         for line in want[key]:
             group = {"hooks": [{"type": "command", "command": line}]}
@@ -253,9 +255,10 @@ def describe(changes, copies, want):
     for change in changes:
         lines.append("%s, %s scope: %s" % (CLIENT_NAMES[change["client"]], change["scope"], change["file"]))
         mine = change["want"]
-        for event in ("UserPromptSubmit", "SessionStart", "SessionStartCompact"):
+        for event, label in (("UserPromptSubmit", "UserPromptSubmit"), ("SessionStart", "SessionStart (clear, startup)"),
+                             ("SessionStartCompact", "SessionStart (compact)")):
             for line in mine[event]:
-                lines.append("  hook %s: %s" % (event.replace("Compact", " (compact)"), line))
+                lines.append("  hook %s: %s" % (label, line))
         for rule in mine["deny"]:
             lines.append("  permissions.deny: %s (the tool leaves Claude's context; takes effect in a new session)"
                          % rule)
