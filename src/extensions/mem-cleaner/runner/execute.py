@@ -161,6 +161,7 @@ def _invoke(provider, operation, payload, workspace, timeout, variables=None):
                 timeout=timeout,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),  # no console window on Windows
             )
         except FileNotFoundError:
             raise StageError("%r not found; is the provider installed?" % argv[0])

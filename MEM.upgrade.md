@@ -37,7 +37,9 @@ form. A third subsection, "Offering the catalogue", asks the user which extensio
 initialization and after an update that brings an extension not registered in `EXT.md` — with one confirmation
 naming the files before anything is written, and records the ones not chosen as `declined`. Two extensions join the
 manifest, `mem-stats` 0.1.0 and `mem-optimize` 0.1.0, both shipping executable content; they are offered, never
-installed by the upgrade. No configuration or layout change, and no change to existing extensions.
+installed by the upgrade. Executable content must now start no visible window (on Windows `CREATE_NO_WINDOW`,
+never `DETACHED_PROCESS`); `mem-cleaner`'s runner was brought in line, with no change to its behavior or files. No
+configuration or layout change.
 
 ### Required actions
 

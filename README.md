@@ -306,11 +306,13 @@ Agents re-send the whole conversation with every request, so what a session cost
 
 | Command | Purpose |
 |---|---|
-| `MEM STATS INGEST` | Read the client's logs into the ledger |
-| `MEM STATS REPORT` | Usage, context composition, fixed overhead, KB pages, cache breaks, compactions; by period |
-| `MEM STATS PRUNE` | Delete sessions older than a date |
+| `MEM STATS SETUP` | Install the hook that keeps the ledger current, and import the history |
+| `MEM STATS REPORT` | Usage, projects, context composition, fixed overhead, KB pages, cache breaks, compactions, subagents, coverage; as text or JSON, by project and period |
+| `MEM STATS WATCH` | The same report, refreshed as the ledger changes |
+| `MEM STATS STATUS` / `RESET` | What is installed; remove it |
+| `MEM STATS INGEST` / `PRUNE` | Import by hand; delete sessions older than a date |
 
-It makes no model calls and sends nothing anywhere. Prices are optional: a dated card values the tokens at API rates, which on a subscription is a valuation, not what you pay.
+There is one ledger per user, for every project: a hook at the end of each agent turn queues the session and a background worker reads it, printing nothing and costing no tokens, so several open sessions are measured at once. Each request records its project, and a report can be limited to one. It makes no model calls and sends nothing anywhere. Prices are optional: a dated card values the tokens at API rates, which on a subscription is a valuation, not what you pay.
 
 ### Shorter sessions with `mem-optimize`
 
@@ -503,7 +505,7 @@ An extension may also declare a **bootstrap entry**: one file under its own `cus
 
 Almost everything MEM distributes is Markdown an agent reads. Some extensions need more than that — `mem-cleaner` needs a small program to replace files transactionally, because an agent in a conversation cannot promise to still be there to finish a rollback.
 
-Such an extension must declare `executable content: yes`, and MEM treats it differently in three ways. It is not offered at all unless you set `extensions_allow_executable_content: true`, which is **off by default**. Installing it asks for approval that names the executable files as executable, separately from the rest — approving documentation and approving code are not the same decision. And updating it asks again, because an update replaces code already in your repository.
+Such an extension must declare `executable content: yes`, and MEM treats it differently in three ways. It is not offered at all unless you set `extensions_allow_executable_content: true`, which is **off by default**. Installing it asks for approval that names the executable files as executable, separately from the rest — approving documentation and approving code are not the same decision. And updating it asks again, because an update replaces code already in your repository. Its code must also run without visible windows — no console flashing on your desktop each time a hook fires — and code the agent writes for you, such as tests, should do the same.
 
 MEM does not pretend to sandbox that code. The rule that an extension "cannot grant itself permissions your configuration denies" describes something an agent can honour and a program cannot, and saying otherwise would be a guarantee nothing behind it can keep. What you get instead is the thing a package manager cannot give you: the code lives in your repository, so an update arrives as a diff you can read in a pull request — which is only meaningful if it stays small enough to actually read, and that is a constraint on MEM, not on you.
 

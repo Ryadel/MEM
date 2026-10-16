@@ -175,15 +175,17 @@ update.
 ### mem-stats
 
 - **version**: 0.1.0
-- **provides**: `STATS` (subcommands `INIT`, `INVENTORY`, `READ`, `INGEST`, `REPORT`, `WATCH`, `PRUNE`), and
-  usage measurement for Claude Code and Codex
+- **provides**: `STATS` (subcommands `SETUP`, `STATUS`, `RESET`, `REPORT`, `WATCH`, `INGEST`, `PRUNE`, `INIT`,
+  `INVENTORY`, `READ`), and usage measurement for Claude Code and Codex
 - **precedence**: base
 - **external actions**: no
-- **executable content**: yes — `runner/stats.py`, `runner/claude_code.py`, `runner/codex.py` (Python 3.11+,
-  standard library; 3.14+ to read Codex rollouts older than a week)
-- **default mode**: may-write
+- **executable content**: yes — `runner/stats.py`, `runner/claude_code.py`, `runner/codex.py`,
+  `runner/hook_ingest.py`, `runner/setup.py` (Python 3.11+, standard library; 3.14+ to read Codex rollouts older
+  than a week)
+- **default mode**: may-write (settings files, only after the user confirms the plan)
 - **summary**: measure what agent sessions consume, from the client's local logs — tokens per request, cache
-  reads and rewrites, what fills the context (MEM included), compactions — into a local ledger of counts.
+  reads and rewrites, what fills the context (MEM included), compactions — per project and host-wide, into one
+  local ledger of counts per user, filled automatically by a hook installed by a setup wizard.
 - **base files**:
 
 ```text
@@ -191,10 +193,13 @@ extensions/mem-stats/index.md
 extensions/mem-stats/runner/stats.py
 extensions/mem-stats/runner/claude_code.py
 extensions/mem-stats/runner/codex.py
+extensions/mem-stats/runner/hook_ingest.py
+extensions/mem-stats/runner/setup.py
 extensions/mem-stats/prices/anthropic-api-2026-10-15.json
 ```
 
-The ledger and any project price card live under `extensions/mem-stats/custom/`, never listed here.
+Project price cards live under `extensions/mem-stats/custom/`, never listed here. The ledger is outside the
+repository, in `~/.mem/mem-stats/state/`.
 
 ### mem-optimize
 

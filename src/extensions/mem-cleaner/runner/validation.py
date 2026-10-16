@@ -308,6 +308,7 @@ def run_command(command, cwd, timeout):
             timeout=timeout,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),  # no console window on Windows
         )
     except FileNotFoundError:
         return Finding("command", False, "%r not found" % argv[0])

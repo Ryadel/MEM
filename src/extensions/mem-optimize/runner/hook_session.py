@@ -78,11 +78,13 @@ def main():
             entry["decision"] = "stale-handoff" if note is not None and note.is_file() else "no-handoff"
         else:
             parts, confirm = [], []
+            consumed = note.with_name(note.stem + ".consumed-" + time.strftime("%Y%m%d-%H%M%S") + note.suffix) \
+                if has_note else None
             if has_note:
                 text = note.read_text(encoding="utf-8")
-                if len(text) > LIMIT:
+                if len(text) > LIMIT:  # point at the name the note will have once marked consumed below
                     text = ("A handoff note from the previous session is too long to inline; read it first: "
-                            + str(note.resolve()))
+                            + str(consumed.resolve()))
                 written = time.strftime("%H:%M", time.localtime(note.stat().st_mtime))
                 parts.append("Resuming from the previous session's handoff note (written before /clear at the user's "
                              "confirmation). Continue from it; do not ask the user to repeat it.\n\n" + text)
@@ -118,7 +120,7 @@ def main():
                                          "hookSpecificOutput": {"hookEventName": "SessionStart",
                                                                 "additionalContext": context}}, ensure_ascii=False))
             if has_note:
-                note.rename(note.with_name(note.stem + ".consumed-" + time.strftime("%Y%m%d-%H%M%S") + note.suffix))
+                note.rename(consumed)
             if has_held:
                 held.unlink()  # the user's own words: not kept once delivered
             entry.update(decision="injected", chars=len(context), note=has_note, held=has_held)

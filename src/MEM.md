@@ -408,7 +408,8 @@ An extension shipping executable content **must** declare `executable content: y
 - installing it **must** require approval that names the executable files **as executable**, distinctly from the rest. Approving Markdown and approving code are not the same act, and one confirmation covering both silently converts the first into the second;
 - updating it carries the same requirement. An update writes the manifest paths, so it **replaces code already in the repository**;
 - the obligation on the *reader* replaces the guarantee. Executable content **must** be small enough to review, and reviewing it before approval is the only control that exists;
-- it **must not** load or execute code supplied by the project it is installed into. Project-owned definitions under `custom/` are data — declarative files and argument vectors — never a plugin surface.
+- it **must not** load or execute code supplied by the project it is installed into. Project-owned definitions under `custom/` are data — declarative files and argument vectors — never a plugin surface;
+- it **must** run without visible windows: no process it starts may open a console or other window on the user's desktop — on Windows, start child processes with `CREATE_NO_WINDOW` (or a windowless interpreter such as `pythonw.exe`), and not with `DETACHED_PROCESS`, which overrides it and leaves a process without a console whose own children open visible ones — and its output goes to pipes or files. Hooks run on every prompt or turn, so a flashing window there interrupts the user every time.
 
 The compensating property, and the reason this is admissible at all: executable content delivered this way is **committed to the consuming repository**, so an update appears as a reviewable diff in a pull request rather than as an opaque package version.
 
@@ -718,6 +719,8 @@ Before modifying code:
 7. update the KB if the change is meaningful.
 
 Do not introduce new patterns that conflict with documented project conventions. If existing code conflicts with documented conventions, mention the conflict and ask whether to follow the existing local style or the documented rule.
+
+Scripts, tests and helpers the agent writes and runs **should** start their child processes without visible windows, as executable content must (see "Instruction text and executable content"): a test suite spawning interpreters can otherwise flash dozens of console windows while the user works. This governs the code the agent writes; how the agent's own client starts its tools is outside MEM's control.
 
 ## Agent credit
 

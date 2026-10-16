@@ -1,178 +1,195 @@
 # Extension: `mem-stats`
 
 Measures what agent sessions really consume, from the client's own local logs: tokens per request (new, read from
-the cache, written to it, output), what fills the context (MEM and each extension, tool results, fixed overhead such
-as tool definitions), where the cache was rebuilt and why, compactions and fresh starts. It makes no model calls
-and sends nothing anywhere: everything stays in a local SQLite ledger that holds counts, never content.
+the cache, written to it, output), what fills the context (MEM and each extension, tool results, attachments, fixed
+overhead such as tool definitions), where the cache was rebuilt and why, compactions and fresh starts — per project
+and for the whole host. It makes no model calls and sends nothing anywhere: everything stays in one local SQLite
+ledger per user that holds counts, never content.
 
 - **version**: 0.1.0
 - **provides**: `STATS`
-- **subcommands**: `INIT`, `INVENTORY`, `READ`, `INGEST`, `REPORT`, `WATCH`, `PRUNE` - closed set
+- **subcommands**: `SETUP`, `STATUS`, `RESET`, `REPORT`, `WATCH`, `INGEST`, `PRUNE`, `INIT`, `INVENTORY`, `READ` -
+  closed set
 - **precedence**: base
 - **external actions**: no
-- **executable content**: yes - `runner/stats.py`, `runner/claude_code.py`, `runner/codex.py`
-- **default mode**: may-write
-- **clients**: Claude Code (CLI and VS Code extension); Codex (CLI, app and VS Code extension)
-
-| Command | What it does |
-|---|---|
-| `MEM STATS INIT` | Creates the ledger |
-| `MEM STATS INGEST` | Reads the client logs into the ledger (Claude Code: `runner/claude_code.py`; Codex: `runner/codex.py`) |
-| `MEM STATS REPORT` | Usage, context composition, fixed overhead, KB pages, cache breaks, lifecycle, costliest items; `--since`/`--until`, `--prices` |
-| `MEM STATS WATCH` | The report, re-emitted when the ledger changes: for a local dashboard |
-| `MEM STATS PRUNE` | Deletes whole sessions last active before a date |
-| `MEM STATS INVENTORY`, `MEM STATS READ` | Snapshot of the KB's extensions; an instrumented full read of a KB file |
-
-Independent of mem-optimize. Python 3.11+ and standard-library SQLite; reading Codex rollouts older than a week
-(recompressed by Codex to `.jsonl.zst`) needs Python 3.14+, whose standard library reads zstd — with an older
-Python they are skipped and counted in the coverage summary. Explicit tokenization also needs tiktoken. Registering
-this extension alone does not start collection: initialize a project-owned database under `custom/` and run the
-adapters.
-
-## When executable content is not allowed
-
-Every subcommand and adapter runs code under `runner/`. When this extension is
-loaded or invoked, or the user asks to install it, and
-`extensions_allow_executable_content` is not `true` in `MEM.config.md`
-(absent means `false`), the agent **must not** run `runner/` and **must**:
-
-1. tell the user that the setting is off, and that MEM therefore forbids
-   running this extension's code;
-2. say plainly what follows: **while the setting stays `false`, mem-stats is
-   installed but does not work** — no usage, attribution or composition is
-   collected, no report or dashboard can be produced, and the Claude Code
-   adapter cannot read transcripts;
-3. ask for authorization to set `extensions_allow_executable_content: true`,
-   naming `runner/stats.py`, `runner/claude_code.py` and `runner/codex.py` as the code that would
-   then run, and noting that the setting covers every installed extension
-   declaring executable content;
-4. change `MEM.config.md` only after an explicit yes. On a no, run nothing and
-   do not ask again in the same session.
-
-Asking is not authorization: until the user answers yes, the setting and the
-runner stay as they are.
-
-## Behavior
-
-The collector must distinguish tool-payload counts from cumulative provider
-usage. Exact billing requires provider request IDs, usage with separate cache
-buckets, and a dated price card. Without those inputs, report unknown fields
-as null; do not infer exact cost or the cost of a hypothetical session without MEM.
-
-Inventory is the union of the supplied MEM catalogue, local EXT.md registrations
-and installed entrypoints. Report configured status, effective activation,
-executable permission and per-extension observations, including unobserved
-active extensions. A missing catalogue means local-only coverage.
-
-The event ledger belongs to this extension. It must not contain file contents,
-user prompts, credentials or model answers. Store identifiers, counts, modes,
-hashes, state snapshots and usage attribution only. Local collection makes no
-LLM calls; instructions and reports consume tokens when included in context.
-WATCH is suitable for a local dashboard; sending every update to a model would
-increase token consumption.
+- **executable content**: yes - `runner/stats.py`, `runner/claude_code.py`, `runner/codex.py`,
+  `runner/hook_ingest.py`, `runner/setup.py`
+- **default mode**: may-write (settings files, only after the user confirms the plan)
+- **clients**: Claude Code (CLI and VS Code extension); Codex (CLI and app; its VS Code extension on Windows runs no
+  hooks while openai/codex#33413 is open — ingest there by hand with `MEM STATS INGEST`)
 
 ## Commands
 
-`--db PATH` is mandatory. INIT creates the ledger; INGEST reads JSONL on stdin;
-INVENTORY snapshots a KB with optional `--manifest PATH`; READ instruments a
-full file read. REPORT and WATCH accept a session filter and `--prices PATH`.
-WATCH polls for changes and emits JSON only when the ledger changes. PRUNE takes
-`--before DATE`.
+| Command | What it does |
+|---|---|
+| `MEM STATS SETUP` | Runs the setup wizard: two questions, the full plan, one confirmation. Installs the ingestion hook, creates the ledger, imports the history. Run again to change the answers |
+| `MEM STATS STATUS` | Hooks present per client, ledger path and size, last ingestion, lock and queue. Read-only |
+| `MEM STATS RESET` | Removes the hooks mem-stats added, and only those; the ledger stays unless the user asks to delete it |
+| `MEM STATS REPORT` | The report, as readable text (`--format text`) or JSON; filters by project, period, session; chooses sections |
+| `MEM STATS WATCH` | The report, rendered again whenever the ledger changes: a live local view |
+| `MEM STATS INGEST` | Imports by hand: a whole host's history, one workspace, one transcript or rollout |
+| `MEM STATS PRUNE` | Deletes whole sessions last active before a date |
+| `MEM STATS INIT`, `INVENTORY`, `READ` | Create the ledger; snapshot a KB's extensions; an instrumented full read of a KB file |
 
-The adapter must normalize provider usage, count repeated context per request,
-and supply MEM/extension attribution; the runner cannot discover that from
-an editor's UI or from the model's final answer.
+Python 3.11+ and standard-library SQLite. Codex rollouts older than a week (recompressed by Codex to `.jsonl.zst`)
+need Python 3.14+, whose standard library reads zstd; with an older Python they are skipped and counted under
+`coverage`. Exact tokenization needs tiktoken; without it sizes are labelled character estimates. Independent of
+mem-optimize.
 
-## Client adapters
+## When executable content is not allowed
 
-`runner/claude_code.py` is the first client adapter, read-only and offline. It
-parses Claude Code transcripts (`~/.claude/projects/<workspace>/`, including
-subagent transcripts; the VS Code extension and the CLI share them) and emits
-`usage` events: inclusive input, cache reads/writes with the 1h share in
-`usage_detail`, pricing tier, server tool counts, client version and entrypoint.
-Pipe its stdout into INGEST or pass `--db`. Re-runs are idempotent: a request is
-emitted only once settled, and its coverage summary (stderr) reports pending,
-inconsistent, unrecognized and untested-version lines.
+Every subcommand runs code under `runner/`. When this extension is loaded or invoked, or the user asks to install
+it, and `extensions_allow_executable_content` is not `true` in `MEM.config.md` (absent means `false`), the agent
+**must not** run `runner/` and **must**:
 
-With a KB root (`--kb-root`, or found under `--workspace`) it also emits one
-`attribution` event per request, method `claude-code-positional/1`: MEM and
-per-extension buckets with input categories (`instructions`, `kb_tool_results`,
-`kb_writes`). The prompt is the request's `parentUuid` chain. Sizes are calibrated
-on measured usage: earlier answers occupy their `output_tokens` (thinking stays in
-context although transcripts keep almost none of its text), and lines added
-between two requests occupy `ΔI - previous output`, shared out by estimate.
-Segments are placed backwards from the prompt's end and split over the cached,
-written and uncached ranges. MEM content is: tool calls on KB paths (Bash and
-PowerShell when the command names the KB or runs inside it), writes into the
-KB, and injected instruction files inside a KB or naming `MEM.index.md` /
-`MEM.config.md`. The coverage summary reports measured versus fallback groups
-and the unexplained prefix (system prompt and tools), whose stability is the
-quality signal. Messages preserved across a compaction are not followed yet.
+1. tell the user that the setting is off, and that MEM therefore forbids running this extension's code;
+2. say plainly what follows: **while the setting stays `false`, mem-stats is installed but does not work** —
+   nothing is collected, no report can be produced, and the wizard cannot run;
+3. ask for authorization to set `extensions_allow_executable_content: true`, naming the five runners as the code
+   that would then run, and noting that the setting covers every installed extension declaring executable content;
+4. change `MEM.config.md` only after an explicit yes. On a no, run nothing and do not ask again in the session.
 
-Attributions are estimates kept apart from measured usage, so a revised method
-is added under a new method name instead of rewriting events. REPORT uses the
-latest attribution per request, or `--attribution-method NAME`.
+Asking is not authorization: until the user answers yes, the setting and the runners stay as they are.
 
-Unless `--no-composition`, the adapter also emits one `composition` event per
-request: calibrated prompt tokens by source (`assistant_output`,
-`user_attachments`, `tool:<name>`, `tool:mcp:<server>`), each split into `new`
-(entered since the previous request) and `carried` (repeated, i.e. paid as cache
-reads), plus `processed.sqz` for tool results bearing the markers of the sqz
-output compressor (`[Abbreviations]`, `sqz expand <hash>`, `§ref:…§`; absence
-proves nothing), so that its effect on a context stays visible.
-It needs no KB root. REPORT aggregates it as `context_composition`, and
-`--since` / `--until` (ISO, `until` exclusive) restrict a report to a period,
-for before/after comparisons.
+## Setup wizard (`MEM STATS SETUP`)
 
-With composition, the adapter also emits one `breakdown` event per request and
-the `overhead` events it names. An `overhead` event records fixed per-request
-content once: the system prompt and each tool definition from Claude Code's
-`prompt_snapshot` attachments (character estimates), or a listing attachment
-that every later request carries (`skill_listing`, `agent_listing_delta`,
-`deferred_tools_delta`, `mcp_instructions_delta`, `instructions`; calibrated).
-A `breakdown` names the overhead in force, the unexplained prefix, the tools the
-request called, and — with a KB root — KB pages by new and carried tokens
-(`<shell>` and `<search>` for commands and searches inside a KB, `<instructions>`
-for a MEM pointer in an instruction file outside it). REPORT adds:
+Run after installation. Registering the extension alone collects nothing: the wizard is what starts collection. Ask
+with the client's question tool (`AskUserQuestion` in Claude Code; `request_user_input` in Codex, Plan mode only —
+numbered questions otherwise), recommended option first, in the user's language, explaining each plainly. Write
+nothing until the final confirmation.
 
-- `fixed_overhead`: each item's replayed tokens (size × requests carrying it,
-  snapshot sizes scaled to the prefix of the first request they served), calls
-  per tool, MCP servers, tools loaded but never called, and `tool_usage`: every
-  tool seen with its calls and the cost of its definition (a tool called but
-  never in a snapshot was deferred or not recorded);
-- `kb_pages`: the costliest KB pages, ranked;
-- `cache_breaks`: later requests in a stream (a session or one subagent) that
-  rewrote at least half of a prompt of 10k+ tokens, by likely cause
-  (`idle_over_1h`, `idle_over_30m` (OpenAI), `idle_over_5m`, `model_changed`, `context_reduced` — which
-  includes compactions — or `other`), with the API-equivalent cost of the
-  rewrite against reading the same tokens from the cache when a card matches;
-- `costliest`: the top sources, KB pages and overhead items in one place. The
-  three lists overlap; they are views, not parts of a total.
+0. **Executable content** — only if off: as in the section above. Without it the wizard stops.
+1. **Clients** (multi-select) — Claude Code · Codex, pre-selecting those installed (`~/.claude/`, `~/.codex/`).
+   Explain that Codex runs a new or changed hook only after the user approves it with `/hooks` (CLI) or the app's
+   hook review.
+2. **Import the history** — yes (recommended) · no. Yes reads every past session of the chosen clients on this host
+   once, at installation, in the foreground; say it may take a few minutes on a long history.
 
-- `lifecycle`: compactions (trigger, median context before and after) and fresh starts with `/clear`, from Claude
-  Code's `compact_boundary` and `local_command` lines and Codex's `compacted` lines.
+There is no scope question: there is **one ledger per user, for every project**. Each request records the project it
+belongs to (the folder its session started in), so `REPORT --project PATH` gives any project's figures and a
+per-project ledger would add nothing.
 
-Ranked lists are ordered largest first; `--top N` (default 10) bounds them.
+Then write the answers to a JSON file (`{"clients": ["claude", "codex"], "backfill": true}`; advanced, rarely needed:
+`ledger`, `python`, `adapter_python` — e.g. a Python 3.14 for old Codex rollouts), show
+`runner/setup.py plan --answers FILE` to the user, and on confirmation run `runner/setup.py apply --answers FILE`.
+`apply`:
 
-`runner/codex.py` reads Codex rollouts (`$CODEX_HOME/sessions/` and `archived_sessions/`, default `~/.codex`):
-one `usage` event per `token_usage_record` (Codex's `input_tokens` already includes cached input; reasoning tokens,
-part of the output, are kept apart), or, in rollouts older than that record, per change of the cumulative
-`token_count`; the model comes from the latest `turn_context`. A response logged twice on resume counts once. It
-emits `lifecycle` compactions too; MEM attribution and composition are Claude Code-only for now. `--workspace`
-keeps the sessions whose working folder it is. For OpenAI, cache breaks count input not read from the cache as
-rewritten (no cache-write figure is reported) and add `idle_over_30m`, OpenAI's cache lifetime for GPT-5.6+.
+- copies the runners to `~/.mem/mem-stats/<version>/runner/` (run `apply` again after updating the extension);
+- creates the ledger `~/.mem/mem-stats/state/stats.sqlite`;
+- backs up each settings file to `~/.mem/mem-stats/backups/<stamp>/` and records what it added in
+  `~/.mem/mem-stats/setup-log.json`;
+- adds the hook — Claude Code: `Stop` and `SessionEnd` in `~/.claude/settings.json`; Codex: `Stop` in
+  `~/.codex/hooks.json` — recognized by its runner name, so a second `apply` replaces instead of duplicating and other
+  tools' hooks (mem-optimize's included) are never touched;
+- imports the history when chosen.
 
-`PRUNE --before DATE` deletes whole sessions whose latest timed event is older, never half a session; overhead
-events still referenced by kept requests stay.
+`STATUS` is `setup.py status`; `RESET` is `setup.py reset` (`--delete-ledger` only on an explicit request).
 
-Price cards may add `cache_write_1h` and tier keys (`service_tier`, `speed`,
-`inference_geo`, defaulting to standard/standard/global). A request whose 1h
-writes or tier have no matching rate is unpriced rather than priced at a guess.
-`basis` (e.g. `api-equivalent`) is echoed in reports. `prices/` holds a dated
-Anthropic API card copied from the official pricing page; under a subscription
-plan its totals value usage at API rates and are not what was paid. The adapter
-records `inference_geo: "not_available"` as unreported (default pricing).
+## How collection works
 
-Project databases, price cards and adapter settings live under `custom/` and
-must be preserved by updates. Full protocol and examples are in the source
-bundle README; use `runner/stats.py --help` for executable syntax.
+At the end of every agent turn the hook queues the session's transcript (Claude Code) or rollout (Codex) and returns
+at once, printing nothing: it costs no model tokens. A background worker — one at a time per ledger, under a lock —
+waits a few seconds for the client to finish writing, then runs the adapter on the queued files. Several sessions open
+at once only queue; the ledger is SQLite in WAL mode with deterministic event ids, so concurrent writers never
+duplicate an event. A queued file leaves the queue only once its import succeeded: a failed one is retried by the
+next worker runs, at most three, then dropped with a line in the run log. The history import at setup takes the same
+lock, waiting for a running worker first. The run log `~/.mem/mem-stats/state/ingest.jsonl` records times, exit
+codes and counts, never content. Every process starts without a visible window.
+
+Re-ingesting is safe. A measured `usage` event arriving again with the same token counts replaces the stored one
+(older ledgers gain new fields this way); with different counts it is a conflict, counted and skipped, never an abort.
+Derived events (attribution, composition, breakdown, coverage...) are replaced by the latest run, except that a run
+with less context — fewer KB roots — never overwrites richer data.
+
+## Reports
+
+`runner/stats.py --db LEDGER report` (`watch` takes the same options plus `--interval`):
+
+- `--format text` — Markdown, one heading per section; `json` is the default.
+- `--sections a,b` — any of `provider_usage`, `projects`, `mem_attribution`, `money`, `context_composition`,
+  `fixed_overhead`, `kb_pages`, `cache_breaks`, `costliest`, `lifecycle`, `subagents`, `coverage`,
+  `extension_metrics`, `extensions`, `payload`, `inventory_by_session`.
+- `--project PATH` (that folder and below), `--since` / `--until` (ISO, UTC unless a zone is given; `until`
+  exclusive), `--session`, `--top N` (ranked lists, default 10), `--prices CARD`, `--attribution-method NAME`,
+  `--kb-root KB` (checks inventory snapshots against the KB's current registry).
+
+What the sections hold:
+
+- `provider_usage`, `money` — tokens by bucket (input, cache reads, 5m and 1h cache writes, output), per client and
+  model; API-equivalent cost with a price card. Unknown is null, never zero.
+- `projects` — per project: sessions, requests, tokens, cost, MEM share.
+- `mem_attribution` — MEM's share of input (Claude Code), against total and against non-MEM input.
+- `context_composition` — prompt tokens by source, `new` versus `carried` (repeated, paid as cache reads):
+  `assistant_output`, `user_message`, `attachment:<type>` (with a `user_attachments_total`), `tool:<name>`,
+  `tool:mcp:<server>`; tool results bearing the sqz compressor's markers are counted under `processed.sqz`.
+- `fixed_overhead` — system prompt, tool definitions and listings carried by every request; tools loaded but never
+  called.
+- `kb_pages` — the KB pages that cost most (`<shell>`, `<search>`, `<instructions>` for access not tied to one page).
+- `cache_breaks` — requests that rewrote at least half of a 10k+ prompt, by likely cause (`idle_over_1h`,
+  `idle_over_30m` for OpenAI, `idle_over_5m`, `model_changed`, `context_reduced`, `other`), with the cost of the
+  rewrite against reading from the cache.
+- `costliest` — top sources, pages and overhead items in one place; overlapping views, not parts of a total.
+- `lifecycle` — compactions (trigger, context before and after) and `/clear` fresh starts.
+- `subagents` — delegated runs by agent type: runs, requests, tokens, cost.
+- `coverage` — what the adapters could not account for: pending and interrupted requests, anomalies, inconsistent
+  buckets, untested client versions, skipped rollouts, conflicts; inventory snapshots older than the registry.
+- `extension_metrics` — numeric metrics other extensions report (below).
+
+## Ingesting by hand (`MEM STATS INGEST`)
+
+The adapters write to the ledger with `--db LEDGER`, or print JSONL for `stats.py ingest` (stdin; a rejected line is
+reported as `line N: reason`, the others are kept, exit code 1 if any was rejected).
+
+- `runner/claude_code.py` — Claude Code transcripts (`~/.claude/projects/`, subagent transcripts included; the CLI
+  and the VS Code extension share them): `--all`, `--workspace DIR`, `--transcript FILE`, `--session ID`;
+  `--kb-root KB` (repeatable) for MEM attribution, also found under `--workspace`; `--find-kb` looks for KB roots
+  under each session's own project folder (as the hook and the history import do; `.git`, `.tmp`, `node_modules`
+  and virtual environments are skipped). Requests already stored by the
+  same adapter revision and settings are skipped (every line is still read, since the context chain needs it);
+  `--full` recomputes them.
+- `runner/codex.py` — Codex rollouts (`$CODEX_HOME/sessions/` and `archived_sessions/`, default `~/.codex`):
+  `--all`, `--workspace DIR`, `--rollout FILE`, `--session ID`.
+
+`--help` on each runner gives the full syntax.
+
+**Claude Code** gives `usage` per request (settled requests only: a request without `stop_reason` after the quiet
+period is kept with `output_final: false` and its output is a lower bound — mostly subagent requests whose transcript
+kept only early streaming usage, counted as `requests_output_not_final`), MEM `attribution` (method `claude-code-positional/1`: segments sized on
+measured usage, earlier answers by their `output_tokens` since thinking stays in context, messages preserved across a
+compaction followed into the next requests), `composition`, `breakdown` and `overhead`, `lifecycle` and `coverage`.
+**Codex** gives `usage` (input already includes cached input; reasoning tokens kept apart; a response logged twice on
+resume, in the same or another file, counts once), `lifecycle` and `coverage`. MEM attribution and composition are
+Claude Code only: a known limit.
+
+## Ledger and privacy
+
+Event kinds: `usage`, `attribution`, `composition`, `breakdown`, `overhead`, `lifecycle`, `coverage`, `metric`,
+`delivery`, `inventory`. Every kind has a **closed set of fields**: an unknown field is rejected, identifiers are
+bounded and contain no spaces, paths no control characters. The ledger therefore cannot hold file contents, prompts,
+answers, credentials or tool output; it holds identifiers, counts, modes, hashes, KB page paths, tool names and
+project folders. Local collection makes no LLM calls; a report costs tokens only when it is put into a conversation.
+
+`PRUNE --before DATE` deletes whole sessions whose latest event is older, never half a session.
+
+## Extension metrics
+
+Another extension may record numeric metrics as `metric` events: `extension` (its id), `name`
+(`<extension-id>.<metric>`, lowercase, dots and underscores), `version` (integer, the metric's definition), `value`
+(a number, never text), optional `unit` (`count`, `tokens`, `seconds`, `bytes`, `usd`...), `at`, optional `session`.
+REPORT aggregates them by name under `extension_metrics`.
+
+## Price cards
+
+`prices/` holds an Anthropic API card copied from the official pricing page; a card is a JSON list of entries with
+`provider`, `model`, `currency`, `as_of`, optional `until`, `basis` (e.g. `api-equivalent`), the per-million rates
+(`input`, `cached_input`, `cache_write`, `cache_write_1h`, `output`) and optional tier keys (`service_tier`, `speed`,
+`inference_geo`). Each request takes the matching card with the latest `as_of` not after it; a request older than
+every matching card takes the earliest one and is counted as priced before the card's date; a request whose rates are
+missing is unpriced and counted by reason. Under a subscription plan the totals value usage at API rates: they are
+not what was paid.
+
+## Files
+
+- `runner/` — the five runners; `prices/` — base price cards.
+- `custom/` — the project's own price cards, preserved by updates. The ledger is not in the KB: it lives in
+  `~/.mem/mem-stats/state/` with the run log, lock and queue.

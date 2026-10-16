@@ -1,5 +1,5 @@
 """Claude Code usage adapter. Reads local transcripts; emits mem-stats/1 usage, attribution, composition,
-breakdown and overhead events.
+breakdown, overhead, lifecycle and coverage events.
 
 Read-only, no network. Attribution needs at least one KB root (a folder holding MEM.md and MEM.config.md).
 """
@@ -21,8 +21,12 @@ CLIENT = "claude-code"
 # Transcript layouts this parser was verified against; others are parsed if well-formed but reported.
 TESTED_VERSIONS = ("2.1.",)
 USAGE_KEYS = ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens", "output_tokens")
-# Bump when the estimate changes: the ledger keeps one attribution per request and method, and refuses rewrites.
+# Bump when the estimate changes in kind: the ledger keeps the latest attribution per request and method, and a
+# new method name keeps the old estimates for comparison.
 METHOD = "claude-code-positional/1"
+# Bump when the events derived for a settled request change: incremental runs recompute stored requests only when
+# the revision (or the run's context: KB roots, attribution, composition, tokenizer) differs from the stored one.
+REVISION = 2
 WRITE_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
 PATH_KEYS = ("file_path", "notebook_path", "path")
 COMMAND_TOOLS = {"Bash", "PowerShell"}
@@ -33,12 +37,53 @@ NAME_CHARS = "abcdefghijklmnopqrstuvwxyz0123456789._-"
 SQZ_MARKERS = re.compile(r"\[Abbreviations\]|sqz expand [0-9a-f]{8,}|§ref:[0-9a-f]{8,}§|^\[sqz\]", re.M)
 # Attachments Claude Code adds once and every later request carries: fixed overhead, like tool definitions.
 LISTINGS = {"skill_listing", "agent_listing_delta", "deferred_tools_delta", "mcp_instructions_delta", "instructions"}
+# Identifiers the ledger accepts (stats.NAME, 128 characters) and KB page labels (stats.LABEL, 300 characters).
+NAME = re.compile(r"[\w.:@/+<>\[\]-]{1,100}")
+LABEL = re.compile(r"[^\x00-\x1f\x7f]{1,300}")
+
+
+def project_path(folder):
+    """A session's project folder, normalised: absolute, forward slashes, no trailing slash, lower-case drive letter
+    (the rest keeps its case; comparisons ignore case on Windows). None when absent or not storable."""
+    if not isinstance(folder, str) or not folder.strip():
+        return None
+    text = os.path.abspath(folder.strip()).replace("\\", "/")
+    if re.match(r"[A-Za-z]:", text):
+        text = text[0].lower() + text[1:]
+    text = text.rstrip("/") or "/"
+    if re.fullmatch(r"[a-z]:", text):
+        text += "/"
+    return text if LABEL.fullmatch(text) else None
+
+
+def first_cwd(path, main=True):
+    """The working folder of a transcript's first main-chain line (any line when main is False)."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as stream:
+            for line in stream:
+                if '"cwd"' not in line:
+                    continue
+                try:
+                    record = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(record, dict) and isinstance(record.get("cwd"), str) and record["cwd"] and not (
+                        main and record.get("isSidechain")):
+                    return record["cwd"]
+    except OSError:
+        pass
+    return None
+
+
+def safe(name, fallback="other"):
+    """A client-supplied name (tool, attachment type, agent type) as a ledger identifier, or the fallback."""
+    return name if isinstance(name, str) and NAME.fullmatch(name) else fallback
 
 
 def tool_label(name):
     if isinstance(name, str) and name.startswith("mcp__"):
-        return "mcp:" + name.split("__")[1]
-    return name or "unknown"
+        return "mcp:" + safe(name.split("__")[1])
+    return safe(name, "unknown") if name else "unknown"
 
 
 def projects_dir():
@@ -56,6 +101,9 @@ def transcripts(folder):
     return sorted(folder.glob("*.jsonl")) + sorted(folder.glob("*/subagents/*.jsonl"))
 
 
+SKIP_FOLDERS = {".git", "node_modules", "__pycache__", ".venv", "venv", ".tmp"}  # .tmp: MEM's agent_tmp_dir default; test KBs live there
+
+
 def find_kb_roots(workspace, depth=4):
     """KB roots under a workspace: folders holding both MEM.md and MEM.config.md."""
     found, frontier = [], [Path(workspace)]
@@ -65,7 +113,7 @@ def find_kb_roots(workspace, depth=4):
             if (folder / "MEM.md").is_file() and (folder / "MEM.config.md").is_file():
                 found.append(folder)
             try:
-                following += [p for p in folder.iterdir() if p.is_dir() and p.name not in (".git", "node_modules")]
+                following += [p for p in folder.iterdir() if p.is_dir() and p.name not in SKIP_FOLDERS]
             except OSError:
                 pass
         frontier = following
@@ -219,15 +267,23 @@ class Context:
         self.groups = {"measured": 0, "fallback": 0}
         self.sources, self.tool_names = {}, {}  # uuid -> (source label, processed by sqz); tool_use id -> label
         self.listings, self.snapshots = {}, []  # uuid -> fixed-overhead attachment; (file index, overhead event)
+        # Compactions: summary (anchor) uuid -> (head, tail) of the messages kept verbatim after it; preserved lines
+        # first sent in a request's prompt -> that request.
+        self.splices, self.joined = {}, {}
 
     def add(self, index, record):
         uuid = record.get("uuid")
         if not uuid or record.get("type") not in ("user", "assistant", "attachment", "system"):
             return
         self.lines[uuid] = (record.get("parentUuid"), self.attributor.segments(record, self.tools))
+        segment = (record.get("compactMetadata") or {}).get("preservedSegment") \
+            if record.get("subtype") == "compact_boundary" else None
+        if isinstance(segment, dict) and all(isinstance(segment.get(k), str) for k in ("headUuid", "anchorUuid", "tailUuid")):
+            self.splices[segment["anchorUuid"]] = (segment["headUuid"], segment["tailUuid"])
         attachment = record.get("attachment") if record.get("type") == "attachment" else None
         if isinstance(attachment, dict) and attachment.get("type") in LISTINGS and record.get("rendered"):
-            self.listings[uuid] = record
+            self.listings[uuid] = {"sessionId": record.get("sessionId"), "timestamp": record.get("timestamp"),
+                                   "attachment": {"type": attachment["type"]}}
         elif isinstance(attachment, dict) and attachment.get("type") == "prompt_snapshot" and attachment.get("tools"):
             self.snapshots.append((index, self.snapshot(record, attachment)))
         content = (record.get("message") or {}).get("content")
@@ -238,8 +294,10 @@ class Context:
             for block in blocks:
                 if block.get("type") == "tool_use":
                     self.tool_names[block.get("id")] = tool_label(block.get("name"))
-        elif record.get("type") in ("user", "attachment"):
-            label = "user_attachments"
+        elif record.get("type") == "attachment":
+            label = "attachment:" + safe(attachment.get("type") if isinstance(attachment, dict) else None)
+        elif record.get("type") == "user":
+            label = "user_message"
             results = [b for b in blocks if b.get("type") == "tool_result"]
             if results:
                 label = "tool:" + self.tool_names.get(results[0].get("tool_use_id"), "unknown")
@@ -252,7 +310,8 @@ class Context:
         items = {"system_prompt": tokens(flatten(attachment.get("systemPrompt")))}
         for tool in attachment["tools"] if isinstance(attachment["tools"], list) else []:
             if isinstance(tool, dict) and tool.get("name"):
-                items["tool:" + tool["name"]] = tokens(json.dumps(tool, ensure_ascii=False))
+                key = "tool:" + safe(tool["name"])
+                items[key] = items.get(key, 0) + tokens(json.dumps(tool, ensure_ascii=False))
         return {"schema": SCHEMA, "id": "overhead:" + record.get("sessionId", "") + ":" + record["uuid"],
                 "session": record.get("sessionId", ""), "kind": "overhead", "at": record.get("timestamp"),
                 "source": "prompt_snapshot", "count_method": self.attributor.count_method, "items": items}
@@ -287,22 +346,38 @@ class Context:
         Requests are visited in file order and an unmeasurable group takes the median of the ratios measured
         before it, so a settled request's attribution never changes as the transcript grows.
         """
-        measured = []
+        measured, first = [], next(iter(self.requests), None)
         for request_id, request in self.requests.items():
-            group, uuid, previous = [], self.lines.get(request["lines"][0], (None,))[0] if request["lines"] else None, None
-            while uuid in self.lines:
+            group, previous, known = [], None, []
+            for uuid, preserved in self.ancestry(self.start(request_id)):
+                if preserved:
+                    # Kept across a compaction: lines already in an earlier prompt keep their size; lines never sent
+                    # before (the results of the last turn before it) are new here and join the group.
+                    if uuid in self.owner or uuid in self.ratios:
+                        known.append(uuid)
+                    else:
+                        group.append(uuid)
+                        self.joined[uuid] = request_id
+                    continue
                 if self.owner.get(uuid, request_id) != request_id:
                     previous = self.requests[self.owner[uuid]]
                     break
                 group.append(uuid)
-                uuid = self.lines[uuid][0]
             estimate = sum(n for u in group for n, *_ in self.lines[u][1])
-            ratio = None
+            ratio, added = None, None
             if previous and estimate:
                 added = request["counts"]["input"] - previous["counts"]["input"] - previous["counts"]["output"]
-                if self.PLAUSIBLE[0] <= added / estimate <= self.PLAUSIBLE[1]:
-                    ratio = added / estimate
-                    measured.append(ratio)
+            elif known and estimate and first != request_id:
+                # First request after a compaction: no earlier prompt is a prefix of this one. What the summary side
+                # adds is the input less the preserved lines and the fixed prefix (system prompt and tools) as
+                # measured on the file's first request: the prefix of the last request before the compaction has
+                # absorbed the estimation error of a long context, and would understate the summary side. The
+                # unexplained prefix of such a request therefore equals the first one's by construction.
+                added = request["counts"]["input"] - self.prefix(first) - sum(
+                    n for u in known for n, *_ in self.segments(u))
+            if added is not None and self.PLAUSIBLE[0] <= added / estimate <= self.PLAUSIBLE[1]:
+                ratio = added / estimate
+                measured.append(ratio)
             if estimate:
                 self.groups["measured" if ratio else "fallback"] += 1
             if ratio is None:
@@ -310,6 +385,42 @@ class Context:
             for uuid in group:
                 self.ratios.setdefault(uuid, ratio)
         self.calibrated = True
+
+    def start(self, request_id):
+        """The newest line of a request's prompt: the parent of its first line."""
+        request = self.requests[request_id]
+        return self.lines.get(request["lines"][0], (None,))[0] if request["lines"] else None
+
+    def ancestry(self, uuid):
+        """(uuid, preserved) for the lines of a prompt, newest first, back to the root.
+
+        After a compaction the chain runs from the summary (the anchor) back to the boundary, while the messages the
+        compaction kept verbatim (head ... tail, still chained to the old context) follow the summary in the prompt:
+        they are spliced in before the summary, flagged as preserved, whether the walk reaches the summary from a later
+        line or starts on it."""
+        stack, seen = [], set()
+        while True:
+            if uuid not in self.lines or uuid in seen:
+                if not stack:
+                    return
+                uuid = stack.pop()[1]  # a segment cut short: carry on at its summary
+                continue
+            head, tail = self.splices.get(uuid, (None, None))
+            if tail in self.lines and tail not in seen:
+                stack.append((head, uuid))
+                uuid = tail
+                continue
+            seen.add(uuid)
+            yield uuid, bool(stack)
+            if stack and uuid == stack[-1][0]:
+                uuid = stack.pop()[1]
+                continue
+            uuid = self.lines[uuid][0]
+
+    def prefix(self, request_id):
+        """Input of a calibrated request that no line explains: the system prompt and tool definitions."""
+        total = sum(n for u, _ in self.ancestry(self.start(request_id)) for n, *_ in self.segments(u))
+        return self.requests[request_id]["counts"]["input"] - total
 
     def segments(self, uuid):
         """Calibrated (tokens, origin, category) of one line."""
@@ -340,8 +451,7 @@ class Context:
         cached, written, total = counts["cached_input"], counts["cache_write"], counts["input"]
         bounds = ((0, cached), (cached, cached + written), (cached + written, total))
         shares, categories, tail, overflow = {}, {}, 0.0, False
-        uuid = self.lines.get(request["lines"][0], (None,))[0] if request["lines"] else None
-        while uuid in self.lines:
+        for uuid, _ in self.ancestry(self.start(request_id)):
             if tail >= total:
                 overflow = True  # calibrated content already fills the prompt before the chain's root
                 break
@@ -356,7 +466,6 @@ class Context:
                         for i, part in enumerate(parts):
                             current[i] += part
                     categories[category] = categories.get(category, 0.0) + sum(parts)
-            uuid = self.lines[uuid][0]
         outputs = {}
         for line in request["lines"]:
             for size, origin, category, _ in self.segments(line):
@@ -394,8 +503,8 @@ class Context:
         sources, processed = {}, {}
         for uuid, phase in self.chain(request_id):
             label, by_sqz = self.sources.get(uuid, (None, False))
-            if label:
-                size = sum(n for n, *_ in self.segments(uuid))
+            size = sum(n for n, *_ in self.segments(uuid)) if label else 0
+            if size:
                 sources.setdefault(label, {"new": 0.0, "carried": 0.0})[phase] += size
                 if by_sqz:
                     item = processed.setdefault("sqz", {"results": 0, "new": 0.0, "carried": 0.0})
@@ -410,18 +519,19 @@ class Context:
 
     def chain(self, request_id):
         """(uuid, phase) for each line of a request's prompt, newest first; phase is 'new' until the lines that
-        were already in the previous request on the chain, then 'carried'."""
-        request = self.requests[request_id]
-        uuid = self.lines.get(request["lines"][0], (None,))[0] if request["lines"] else None
+        were already in the previous request on the chain, then 'carried'. Lines preserved across a compaction are
+        carried, except those this request sent for the first time."""
         phase, previous = "new", None
-        while uuid in self.lines:
+        for uuid, preserved in self.ancestry(self.start(request_id)):
+            if preserved:
+                yield uuid, "new" if self.joined.get(uuid) == request_id else "carried"
+                continue
             owner = self.owner.get(uuid)
             if phase == "new" and owner is not None and previous is None:
                 previous = owner
             elif phase == "new" and previous is not None and owner != previous:
                 phase = "carried"
             yield uuid, phase
-            uuid = self.lines[uuid][0]
 
     def breakdown(self, request_id):
         """Input no calibrated content explains (system prompt and tools), the fixed-overhead listings the prompt
@@ -437,29 +547,65 @@ class Context:
                 listings.append(uuid)
             for size, _, _, page in segments:
                 if page:
+                    page = page if LABEL.fullmatch(page) else "<other>"
                     pages.setdefault(page, {"new": 0.0, "carried": 0.0})[phase] += size
         fit = min(1.0, request["counts"]["input"] / total) if total else 1.0
         return {"prefix": max(0, round(request["counts"]["input"] - total)), "listings": listings[::-1],
                 "kb_pages": {k: {p: math.floor(v[p] * fit) for p in ("new", "carried")} for k, v in sorted(pages.items())}}
 
 
-def parse(path, coverage, provider="anthropic", quiet=60, now=None, attributor=None, composition=False):
+def slim(record):
+    """What later stages need of an assistant line: identity, usage and the names of the tools it called."""
+    message = record.get("message") or {}
+    content = message.get("content")
+    return {**{k: record.get(k) for k in ("uuid", "sessionId", "timestamp", "version", "entrypoint", "isSidechain",
+                                          "agentId")},
+            "message": {"model": message.get("model"), "usage": message.get("usage"),
+                        "stop_reason": message.get("stop_reason"),
+                        "content": [{"type": "tool_use", "name": b.get("name"), "id": b.get("id")} for b in content
+                                    if isinstance(b, dict) and b.get("type") == "tool_use"]
+                        if isinstance(content, list) else []}}
+
+
+def parse(path, coverage, provider="anthropic", quiet=60, now=None, attributor=None, composition=False, stored=None):
     """Yield per settled request: usage, then MEM attribution (given an attributor), then composition and breakdown
-    (if asked), each breakdown preceded by the overhead events it names that this parse has not yielded yet."""
-    requests, last_turn, yielded = {}, -1, set()
+    (if asked), each breakdown preceded by the overhead events it names that this parse has not yielded yet.
+
+    stored(session, request_id) -> True skips a settled request whose events the ledger already holds: its estimates
+    cannot change as the transcript grows, so only new requests are computed (the whole file is still read, since the
+    context chain and calibration need every line)."""
+    requests, last_turn, yielded, answered = {}, -1, set(), set()
     context = Context(attributor or Attributor([])) if attributor or composition else None
-    with open(path, encoding="utf-8", errors="replace") as stream:
-        lines = stream.readlines()
-    for index, line in enumerate(lines):
+    # The project is the session's starting folder; a subagent transcript inherits its parent session's.
+    parent = path.parent.parent.with_suffix(".jsonl") if path.parent.name == "subagents" else None
+    project = (first_cwd(parent) if parent else None) or first_cwd(path) or first_cwd(path, main=False)
+    project = project_path(project)
+    agent_type = None
+    try:  # a subagent transcript's agent-<id>.meta.json names its agent type (its description is not read)
+        agent_type = json.loads(path.with_name(path.stem + ".meta.json").read_text(encoding="utf-8")).get("agentType")
+    except (OSError, ValueError, AttributeError):
+        pass
+    stream = open(path, encoding="utf-8", errors="replace")
+    for index, line in enumerate(stream):
         try:
             record = json.loads(line)
         except ValueError:
             coverage["unreadable_lines"] += 1
             continue
+        if not isinstance(record, dict):
+            coverage["unreadable_lines"] += 1
+            continue
+        if isinstance(record.get("sessionId"), str):
+            coverage.setdefault("session_id", record["sessionId"])
+        if isinstance(record.get("timestamp"), str) and record["timestamp"] > coverage.get("last_at", ""):
+            coverage["last_at"] = record["timestamp"]
         if context:
             context.add(index, record)
         if record.get("type") in ("user", "assistant"):
             last_turn = index
+        if record.get("type") == "user" and isinstance((record.get("message") or {}).get("content"), list):
+            answered.update(b.get("tool_use_id") for b in record["message"]["content"]
+                            if isinstance(b, dict) and b.get("type") == "tool_result")
         if record.get("type") == "system" and record.get("sessionId") and record.get("timestamp") and \
                 not record.get("isSidechain"):
             subtype, meta = record.get("subtype"), record.get("compactMetadata") or {}
@@ -487,8 +633,10 @@ def parse(path, coverage, provider="anthropic", quiet=60, now=None, attributor=N
         # Streaming writes one line per content block: input buckets repeat, output grows to the final line.
         entry = requests.setdefault(record["requestId"], {"inputs": set(), "lines": [], "first": index})
         entry["inputs"].add((counts["input"], counts["cached_input"], counts["cache_write"]))
+        record = slim(record)
         entry["lines"].append(record)
         entry.update(last=index, record=record, counts=counts)
+    stream.close()
     quiet_file = (now or time.time()) - path.stat().st_mtime >= quiet
     if context:
         for request_id, entry in requests.items():
@@ -510,11 +658,21 @@ def parse(path, coverage, provider="anthropic", quiet=60, now=None, attributor=N
         session = record["sessionId"]
         coverage["sessions"].add(session)
         coverage["requests_emitted"] += 1
+        if not stop:
+            # No stop reason: the output count is a lower bound. Either the request was cut short, or it completed
+            # (its tool calls were answered) but the transcript kept only the usage of its first streamed lines, as
+            # subagent transcripts of several 2.1.x versions do.
+            calls = [b.get("id") for line in entry["lines"] for b in line["message"]["content"]]
+            completed = bool(calls) and all(c in answered for c in calls)
+            coverage["requests_output_not_final" if completed else "requests_interrupted"] += 1
+        if stored and stored(session, request_id):
+            coverage["requests_already_stored"] += 1
+            continue
         cache = usage.get("cache_creation") or {}
         tools = {k: v for k, v in (usage.get("server_tool_use") or {}).items() if type(v) is int and v > 0}
         event = {"schema": SCHEMA, "id": "usage:" + session + ":" + request_id, "session": session, "kind": "usage",
                  "request_id": request_id, "provider": provider, "model": record["message"].get("model") or "unknown",
-                 "at": record.get("timestamp"), "usage": entry["counts"],
+                 "at": record.get("timestamp"), "usage": entry["counts"], "project": project,
                  "usage_detail": {"cache_write_1h": min(int(cache.get("ephemeral_1h_input_tokens") or 0),
                                                         entry["counts"]["cache_write"])},
                  # "not_available" reports no geography rather than one: kept unreported, so reports count it
@@ -525,6 +683,10 @@ def parse(path, coverage, provider="anthropic", quiet=60, now=None, attributor=N
                  "output_final": bool(stop),
                  "client": {"name": CLIENT, "version": version, "entrypoint": record.get("entrypoint"),
                             "sidechain": bool(record.get("isSidechain")), "agent": record.get("agentId")}}
+        if project is None:
+            del event["project"]
+        if agent_type and record.get("isSidechain"):
+            event["client"]["agent_type"] = safe(agent_type)
         if tools:
             event["server_tool_use"] = tools
         yield event
@@ -538,7 +700,8 @@ def parse(path, coverage, provider="anthropic", quiet=60, now=None, attributor=N
             stats["input"] += entry["counts"]["input"]
             yield {"schema": SCHEMA, "id": "attribution:" + session + ":" + request_id + ":" + METHOD,
                    "session": session, "kind": "attribution", "request_id": request_id, "method": METHOD,
-                   "count_method": "calibrated:provider-usage+" + attributor.count_method, **estimate}
+                   "count_method": "calibrated:provider-usage+" + attributor.count_method,
+                   "kb_roots": len(attributor.roots), **estimate}
         if composition:
             coverage["compositions"] += 1
             yield {"schema": SCHEMA, "id": "composition:" + session + ":" + request_id + ":" + METHOD,
@@ -556,13 +719,16 @@ def parse(path, coverage, provider="anthropic", quiet=60, now=None, attributor=N
             for line in entry["lines"]:
                 for block in line["message"].get("content") or []:
                     if isinstance(block, dict) and block.get("type") == "tool_use" and block.get("name"):
-                        calls[block["name"]] = calls.get(block["name"], 0) + 1
+                        calls[safe(block["name"])] = calls.get(safe(block["name"]), 0) + 1
             coverage["breakdowns"] += 1
             yield {"schema": SCHEMA, "id": "breakdown:" + session + ":" + request_id + ":" + METHOD,
                    "session": session, "kind": "breakdown", "request_id": request_id, "method": METHOD,
                    "count_method": "calibrated:provider-usage+" + context.attributor.count_method,
+                   "kb_roots": len(context.attributor.roots),
                    "overhead": [item["id"] for item in overhead], "tools_called": dict(sorted(calls.items())), **detail}
     if attributor:
+        if not context.calibrated:
+            context.calibrate()  # every request was already stored: count the groups all the same
         for key, value in context.groups.items():
             coverage["attribution"]["groups_" + key] += value
 
@@ -571,7 +737,8 @@ def new_coverage(attributor=None):
     coverage = {"client": CLIENT, "tested_versions": [v + "x" for v in TESTED_VERSIONS], "files": 0,
                 "sessions": set(), "requests_emitted": 0, "requests_pending": 0, "requests_inconsistent_input": 0,
                 "synthetic_or_unidentified_lines": 0, "unrecognized_usage_lines": 0, "unreadable_lines": 0, "versions": {},
-                "compositions": 0, "breakdowns": 0, "overhead_events": 0, "lifecycle_events": 0}
+                "compositions": 0, "breakdowns": 0, "overhead_events": 0, "lifecycle_events": 0,
+                "requests_interrupted": 0, "requests_output_not_final": 0, "conflicts": 0, "skipped_after_conflict": 0, "requests_already_stored": 0}
     if attributor:
         coverage["attribution"] = {"method": METHOD, "count_method": attributor.count_method, "kb_roots": attributor.roots,
                                    "requests": 0, "requests_overflowing_input": 0, "groups_measured": 0,
@@ -579,7 +746,94 @@ def new_coverage(attributor=None):
     return coverage
 
 
+def merge(total, part):
+    """Add one transcript's coverage counters to a running total."""
+    for key, value in part.items():
+        if type(value) is int:
+            total[key] = total.get(key, 0) + value
+        elif isinstance(value, set):
+            total.setdefault(key, set()).update(value)
+        elif isinstance(value, dict):
+            merge(total.setdefault(key, {}), value)
+        elif key == "prefixes":
+            total.setdefault(key, []).extend(value)
+        elif key == "kb_roots":  # attribution runs of several project groups: every root used
+            total[key] = sorted(set(total.get(key, [])) | set(value))
+        elif key == "last_at":
+            total[key] = max(total.get(key) or "", value)
+        else:
+            total.setdefault(key, value)
+    return total
+
+
+# Counts that depend on how much of a run was incremental, not on the session: kept out of coverage events.
+RUN_COUNTS = {"compositions", "breakdowns", "overhead_events", "requests_already_stored", "conflicts",
+              "skipped_after_conflict"}
+
+
+def coverage_event(session, part, context=None):
+    """A session's coverage counts as a ledger event: counts only, replaced by the next run over the session. context
+    records what the run computed (revision, KB roots...), so that a later run knows whether stored events match."""
+    counts = {k: v for k, v in part.items() if type(v) is int and k not in RUN_COUNTS}
+    for key in ("groups_measured", "groups_fallback"):
+        if key in part.get("attribution", {}):
+            counts["attribution_" + key] = part["attribution"][key]
+    event = {"schema": SCHEMA, "id": "coverage:" + session + ":" + CLIENT, "session": session, "kind": "coverage",
+             "client": CLIENT, "counts": dict(sorted(counts.items())), "context": context or {},
+             "untested_versions": {safe(v, "unknown"): n for v, n in sorted(part["versions"].items())
+                                   if not v.startswith(TESTED_VERSIONS)}}
+    if part.get("last_at"):
+        event["at"] = part["last_at"]
+    return event
+
+
+def project_groups(files):
+    """Transcripts grouped by project folder (main transcripts and their subagent transcripts together), in order."""
+    groups = {}
+    for path in files:
+        folder = path.parent.parent.parent if path.parent.name == "subagents" else path.parent
+        groups.setdefault(folder, []).append(path)
+    return list(groups.values())
+
+
+def project_kb_roots(files):
+    """KB roots under a project's folder: the working folder of the first main-chain line of its first transcript."""
+    mains = [p for p in files if p.parent.name != "subagents"] or files
+    folder = first_cwd(mains[0]) or first_cwd(mains[0], main=False)
+    return find_kb_roots(folder) if folder and Path(folder).is_dir() else []
+
+
+def stored_requests(collector, context, attribution, composition):
+    """stored(session, request_id): True when the ledger holds every event this run would derive for the request,
+    written by a run with the same context (read from the session's coverage event)."""
+    cache = {}
+    kinds = ["usage"] + (["attribution"] if attribution else []) + (["composition", "breakdown"] if composition else [])
+
+    def ids(session):
+        row = collector.db.execute("SELECT payload FROM events WHERE id=?",
+                                   ("coverage:" + session + ":" + CLIENT,)).fetchone()
+        if row is None or json.loads(row[0]).get("context") != context:
+            return None
+        found = set()
+        for kind in kinds:  # primary-key ranges, not a scan of the session column
+            prefix = kind + ":" + session + ":"
+            found.update(r[0] for r in collector.db.execute("SELECT id FROM events WHERE id >= ? AND id < ?",
+                                                            (prefix, prefix[:-1] + ";")))
+        return found
+
+    def stored(session, request_id):
+        if session not in cache:
+            cache[session] = ids(session)
+        found = cache[session]
+        return found is not None and all(
+            (kind + ":" + session + ":" + request_id + ("" if kind == "usage" else ":" + METHOD)) in found
+            for kind in kinds)
+    return stored
+
+
 def finish(coverage):
+    coverage.pop("session_id", None)
+    coverage.pop("last_at", None)
     coverage["sessions"] = len(coverage["sessions"])
     coverage["untested_versions"] = sorted(v for v in coverage["versions"] if not v.startswith(TESTED_VERSIONS))
     stats = coverage.get("attribution")
@@ -609,6 +863,10 @@ def main():
                         help="no per-request context composition, breakdown or overhead events")
     parser.add_argument("--encoding", help="tiktoken encoding for segment estimates (default: characters/4)")
     parser.add_argument("--db", type=Path, help="ingest into this mem-stats ledger instead of writing JSONL to stdout")
+    parser.add_argument("--full", action="store_true",
+                        help="with --db, recompute requests whose events the ledger already holds (default: skip them)")
+    parser.add_argument("--find-kb", action="store_true",
+                        help="per project, also use the KB roots found under the folder its sessions started in")
     args = parser.parse_args()
     root = args.projects_dir or projects_dir()
     if args.transcript:
@@ -620,33 +878,57 @@ def main():
         if not folder.is_dir():
             raise ValueError("no Claude Code transcripts for this workspace: " + str(folder))
         files = transcripts(folder)
-    roots = [] if args.no_attribution else args.kb_root + (find_kb_roots(args.workspace) if args.workspace else [])
-    attributor = Attributor(roots, args.encoding) if roots else None
     collector = None
     if args.db:
         import importlib.util
         spec = importlib.util.spec_from_file_location("mem_stats", Path(__file__).with_name("stats.py"))
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-        collector = module.Collector(args.db)
-    coverage, inserted = new_coverage(attributor), 0
+        collector = module.Collector(args.db, batch=module.BATCH)
+    coverage, sessions = new_coverage(), {}
+
+    def deliver(event, part):
+        if collector:
+            outcome = collector.offer(event)
+            part["conflicts"] += outcome == "conflict"
+            part["skipped_after_conflict"] += outcome == "skipped"
+        else:
+            sys.stdout.write(json.dumps(event, sort_keys=True, separators=(",", ":"), ensure_ascii=True) + "\n")
     try:
-        for path in files:
-            if args.session and args.session not in (path.stem, path.parent.parent.name):
-                continue
-            coverage["files"] += 1
-            for event in parse(path, coverage, args.provider, args.quiet, attributor=attributor,
-                               composition=not args.no_composition):
-                if collector:
-                    inserted += collector.add(event)
-                else:
-                    sys.stdout.write(json.dumps(event, sort_keys=True, separators=(",", ":"), ensure_ascii=True) + "\n")
+        # Each project (a folder of the projects directory) has its own KB roots, hence its own attributor, run
+        # context and incremental skip set: a project without a KB never blanks the estimates of one with it.
+        for files_of in project_groups(files):
+            roots = [] if args.no_attribution else args.kb_root + (
+                find_kb_roots(args.workspace) if args.workspace else []) + (
+                project_kb_roots(files_of) if args.find_kb else [])
+            attributor = Attributor(roots, args.encoding) if roots else None
+            context = {"revision": REVISION, "kb_roots": len(attributor.roots) if attributor else 0,
+                       "attribution": int(bool(attributor)), "composition": int(not args.no_composition),
+                       "tokenized": int(bool(args.encoding))}
+            stored = None if args.full or not collector else stored_requests(collector, context, bool(attributor),
+                                                                              not args.no_composition)
+            for path in files_of:
+                if args.session and args.session not in (path.stem, path.parent.parent.name):
+                    continue
+                part = new_coverage(attributor)
+                part["files"] = 1
+                for event in parse(path, part, args.provider, args.quiet, attributor=attributor,
+                                   composition=not args.no_composition, stored=stored):
+                    deliver(event, part)
+                session = part.get("session_id") or (
+                    path.parent.parent.name if path.parent.name == "subagents" else path.stem)
+                merge(sessions.setdefault(session, ({}, context))[0], part)
+                merge(coverage, part)
+        # One coverage event per session, after its transcripts (main and subagents) were all read.
+        for session, (part, context) in sessions.items():
+            deliver(coverage_event(session, part, context), coverage)
     finally:
         if collector:
             collector.close()
     summary = finish(coverage)
     if collector:
-        summary["inserted"] = inserted
+        for key in ("inserted", "replaced", "unchanged", "kept"):
+            summary[key] = collector.outcomes[key]
     print(json.dumps(summary, sort_keys=True), file=sys.stderr)
 
 

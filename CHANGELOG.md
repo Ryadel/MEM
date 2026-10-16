@@ -33,7 +33,9 @@ MEM uses `MAJOR.MINOR.BUILD` versioning. Version-to-version migration steps are 
   follows the choice; extensions not chosen are registered `declined` and not offered again.
 - Added the **`mem-stats`** extension, 0.1.0: measures what agent sessions consume from Claude Code transcripts and
   Codex rollouts — tokens per request, cache reads and rewrites with their likely cause, context composition, fixed
-  overhead, compactions — into a local ledger of counts. Ships executable content.
+  overhead, compactions, subagent runs — per project and host-wide, into one local ledger of counts per user. A setup
+  wizard installs a hook that keeps the ledger current at no token cost and imports the history; reports come as
+  text or JSON. Ships executable content.
 - Added the **`mem-optimize`** extension, 0.1.0: hooks for Claude Code and Codex that advise a guided restart when a
   session grows large, carry the work into the fresh session after `/clear`, and stop the first prompt after a pause
   longer than the prompt cache lasts; after a compaction, it points the agent back to the knowledge base; and
@@ -46,6 +48,9 @@ MEM uses `MAJOR.MINOR.BUILD` versioning. Version-to-version migration steps are 
 - An extension declaring executable content may now be **listed** in the catalogue offer while
   `extensions_allow_executable_content` is false, marked as needing the setting; choosing it leads to a request to
   enable it. Outside the offer, such an extension is still never proposed.
+- Executable content **must** run without visible windows: no process it starts may open a console or other window
+  on the user's desktop (on Windows, `CREATE_NO_WINDOW` or a windowless interpreter, never `DETACHED_PROCESS`). Scripts and tests the agent
+  writes and runs **should** do the same.
 
 ### Configuration
 
