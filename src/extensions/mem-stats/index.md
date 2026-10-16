@@ -6,7 +6,7 @@ overhead such as tool definitions), where the cache was rebuilt and why, compact
 and for the whole host. It makes no model calls and sends nothing anywhere: everything stays in one local SQLite
 ledger per user that holds counts, never content.
 
-- **version**: 0.1.0
+- **version**: 0.1.1
 - **provides**: `STATS`
 - **subcommands**: `SETUP`, `STATUS`, `RESET`, `REPORT`, `WATCH`, `INGEST`, `PRUNE`, `INIT`, `INVENTORY`, `READ` -
   closed set
@@ -122,8 +122,9 @@ What the sections hold:
 - `context_composition` — prompt tokens by source, `new` versus `carried` (repeated, paid as cache reads):
   `assistant_output`, `user_message`, `attachment:<type>` (with a `user_attachments_total`), `tool:<name>`,
   `tool:mcp:<server>`; tool results bearing the sqz compressor's markers are counted under `processed.sqz`.
-- `fixed_overhead` — system prompt, tool definitions and listings carried by every request; tools loaded but never
-  called.
+- `fixed_overhead` — system prompt, tool definitions and listings carried by every request. `tool_usage` gives, per
+  tool, its definition weight, calls, `calls_per_1000_requests` and `last_called`; `loaded_never_called` and
+  `rarely_called` (at most one call per 1,000 requests carrying the tool) list the candidates to disable.
 - `kb_pages` — the KB pages that cost most (`<shell>`, `<search>`, `<instructions>` for access not tied to one page).
 - `cache_breaks` — requests that rewrote at least half of a 10k+ prompt, by likely cause (`idle_over_1h`,
   `idle_over_30m` for OpenAI, `idle_over_5m`, `model_changed`, `context_reduced`, `other`), with the cost of the

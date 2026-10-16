@@ -32,7 +32,7 @@ not a fallback for a CLI tool, nor the reverse.
 
 ## Reading an entry
 
-Being listed here says nothing about availability: check `custom/installed/<host>.md` before using one.
+Being listed here says nothing about availability: check the machine file, `~/.mem/mem-toolbox/host.md`, before using one.
 
 The id is the entry's filename and, for a CLI tool, its folder name under the tools root — see "Where tools live
 on disk" in the extension's `index.md`. Where a tool has more than one implementation, the id names the tool and

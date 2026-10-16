@@ -5,7 +5,7 @@ grown large, or that resumes after the prompt cache expired, costs far more than
 knowledge base. mem-optimize watches the session's size, tells the agent when a restart pays, carries the work into
 the fresh session, and stops the first prompt after a long pause before it rewrites the whole context into the cache.
 
-- **version**: 0.1.0
+- **version**: 0.1.1
 - **provides**: `OPTIMIZE`
 - **subcommands**: `SETUP`, `STATUS`, `RESET`, `PAGES` - closed set
 - **precedence**: base
@@ -34,7 +34,7 @@ the fresh session, and stops the first prompt after a long pause before it rewri
 | **Guided restart** | Only after the user agrees, the agent updates the KB's resume point, writes a short handoff note and asks for `/clear`; the fresh session opens by confirming the note was restored | The note, a few thousand characters |
 | **Long-pause stop** | After a pause longer than the prompt cache lasts, on a context of 200k+ tokens, the first prompt is stopped once with a message offering (A) `/clear`, the message being carried into the fresh session with a snapshot of the last exchanges, or (B) sending again to continue here | Nothing is sent to the model when stopping |
 | **After a compaction** | When the client compacts the conversation, a short pointer tells the agent to re-read the KB index and the latest resume point: the summary stays the reference for the work in progress, the KB for decisions and conventions | A few hundred characters, once per compaction, plus the two re-reads |
-| **Unused tools** | Built-in tools the user never calls are disabled, so their definitions leave every request | Takes effect in a new session |
+| **Unused tools** | Built-in tools the user chooses to disable — `Artifact` always offered, plus those never or rarely called, or heavy — so their definitions leave every request | Takes effect in a new session |
 
 Thresholds are configurable. The advisor and the stop read the session transcript; they send nothing anywhere.
 
@@ -69,9 +69,19 @@ plainly**: what the option does, what it costs, what changes if refused. Write n
    in the first reply of the fresh session.
 3. **After a long pause** — stop the first prompt and propose `/clear` with the message carried over
    (recommended) · nothing. Explain that the stopped message is not lost, and that sending again continues here.
-4. **Unused tools** (multi-select) — if mem-stats is installed, run its Claude Code ingestion and `report`, and use
-   `tool_usage`: pre-select tools loaded but never or almost never called. For each, say **what the tool does**, its
-   definition size and its calls. Never pre-select a tool the user called recently; never disable one not selected.
+4. **Unused tools** (multi-select) — the tools the user may disable. Without mem-stats, offer `Artifact` alone. With
+   mem-stats, run its Claude Code ingestion and `report`, and read `fixed_overhead`; the options are, ranked by
+   definition weight, **all** of:
+   - `Artifact`, **always**, whatever its calls: a loaded tool's definition is re-sent with every request whether
+     or not it is ever called, and this one is among the largest;
+   - every tool in `loaded_never_called`;
+   - every tool in `rarely_called` — called at most once per 1,000 requests carrying it;
+   - every tool whose `definition_input_share_percent` in `tool_usage` is 1 or more, even when it is called often.
+
+   Do not narrow this list: a heavy tool left out is the costliest omission the question can make. Pre-select a
+   tool only when it has no calls, or when its `last_called` is more than 30 days old; never pre-select one called
+   in the last 30 days. For each option, say **what the tool does**, its definition weight (`definition_input_share_percent`),
+   its calls and `last_called`, and what the user loses by disabling it. Never disable one not selected.
 5. **Scope, one question per enabled element** (advisor, restart, stop, each tool, report permissions) — all projects
    (recommended) · only this project. All projects writes the user settings; only this project writes
    `<workspace>/.claude/settings.local.json`.

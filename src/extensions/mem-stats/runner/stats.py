@@ -17,7 +17,8 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 
-VERSION = "0.1.0"
+VERSION = "0.1.1"
+RARELY = 1000  # a loaded tool called at most once per this many requests carrying it is "rarely called"
 SCHEMA = "mem-stats/1"
 LIFECYCLE = ("compaction", "clear")
 BUCKETS = ("input", "cached_input", "cache_write", "output")
@@ -809,9 +810,12 @@ def overhead_and_pages(uses, events, method, top):
         estimate = sum(overheads[key]["items"].values())
         ratio = prefix / estimate if estimate else 0
         scale[key] = ratio if 0.5 <= ratio <= 5 else 1.0
-    items, calls, pages = {}, Counter(), {}
-    for _, detail in details:
+    items, calls, pages, last_call = {}, Counter(), {}, {}
+    for use, detail in details:
         calls.update(detail.get("tools_called", {}))
+        at = when(use)
+        for tool in detail.get("tools_called", {}) if at else ():
+            last_call[tool] = max(last_call.get(tool, at), at)
         for key in detail.get("overhead", []):
             for name_, tokens in (overheads.get(key) or {}).get("items", {}).items():
                 size = tokens * scale.get(key, 1.0)
@@ -846,6 +850,10 @@ def overhead_and_pages(uses, events, method, top):
             tools.setdefault(name_[5:], {"calls": 0}).update(
                 loaded_requests=item["requests"], definition_replayed_tokens=item["replayed_tokens"],
                 definition_input_share_percent=item["input_share_percent"])
+    for name_, tool in tools.items():
+        tool["calls_per_1000_requests"] = (round(tool["calls"] * 1000 / tool["loaded_requests"], 2)
+                                           if tool.get("loaded_requests") else None)
+        tool["last_called"] = last_call[name_].date().isoformat() if name_ in last_call else None
     prefixes = sorted(d.get("prefix", 0) for _, d in details)
     snapshots = [sum(o["items"].values()) for o in overheads.values() if o["source"] == "prompt_snapshot"]
     fixed = {"requests": len(details), "input_tokens": total_input,
@@ -855,9 +863,13 @@ def overhead_and_pages(uses, events, method, top):
              "items": [{"name": k, **v} for k, v in ranked],
              "mcp_servers": [{"name": k, **v} for k, v in sorted(servers.items(), key=lambda kv: -kv[1]["replayed_tokens"])],
              "loaded_never_called": [k for k, v in ranked if k.startswith("tool:") and not v["calls"]],
+             # Called, but at most once per RARELY requests carrying the definition: still worth offering to disable.
+             "rarely_called": [k for k, v in ranked if k.startswith("tool:") and v["calls"]
+                               and v["calls"] * RARELY <= v["requests"]],
              "tool_usage": [{"tool": k, **v} for k, v in sorted(
                  tools.items(), key=lambda kv: (-kv[1]["definition_replayed_tokens"], -kv[1]["calls"], kv[0]))],
-             "meaning": "replayed = item size x requests carrying it, mostly paid as cache reads; system prompt and "
+             "meaning": "replayed = item size x requests carrying it, mostly paid as cache reads; rarely called = at most "
+                        "one call per 1000 requests carrying the tool; system prompt and "
                         "tool sizes scaled to the unexplained prefix of the first request they served, listings "
                         "calibrated; ranked lists, largest first"}
     for value in pages.values():

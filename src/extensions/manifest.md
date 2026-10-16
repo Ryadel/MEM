@@ -96,14 +96,16 @@ Nothing under `extensions/mem-commands/custom/` is listed here, and an update th
 
 ### mem-toolbox
 
-- **version**: 1.0.2
-- **provides**: `TOOLS` (subcommand `CHECK`), and the tool, library and runtime capability registry
+- **version**: 1.0.3
+- **provides**: `TOOLS` (subcommands `CHECK`, `SETUP`), and the tool, library and runtime capability registry
 - **precedence**: custom
-- **external actions**: yes — approved package installs into a dedicated agent environment only
+- **external actions**: yes — the machine file `~/.mem/mem-toolbox/host.md` once confirmed, and approved package
+  installs into a dedicated agent environment
+- **executable content**: no
 - **default mode**: read-only
-- **bootstrap entry**: `extensions/mem-toolbox/custom/installed/<host>.md`
-- **summary**: which CLI tool or library to use for a task, and whether it is available on this host. Ships a
-  catalogue for media, documents and data, with the Python and Node runtimes libraries need.
+- **summary**: which CLI tool or library to use for a task, and whether it is available on this host, recorded
+  once per machine in `~/.mem/mem-toolbox/`. Ships a catalogue for media, documents and data, with the Python and
+  Node runtimes libraries need.
 - **base files**:
 
 ```text
@@ -143,8 +145,8 @@ extensions/mem-toolbox/catalog/matplotlib.md
   `realesrgan.md`. An update writes the listed paths and **never deletes**, so an installation upgraded from
   1.0.0 keeps the old file until it is removed by hand. `MEM.upgrade.md` states this.
 
-Nothing under `extensions/mem-toolbox/custom/` is listed here, so project entries and per-host data survive every
-update — including the bootstrap entry, which the extension creates rather than the manifest.
+Nothing under `extensions/mem-toolbox/custom/` is listed here, so project entries and the optional copy of host
+data survive every update. The machine file is outside the knowledge base and is never written by an update.
 
 ### mem-workspace
 
@@ -174,7 +176,7 @@ update.
 
 ### mem-stats
 
-- **version**: 0.1.0
+- **version**: 0.1.1
 - **provides**: `STATS` (subcommands `SETUP`, `STATUS`, `RESET`, `REPORT`, `WATCH`, `INGEST`, `PRUNE`, `INIT`,
   `INVENTORY`, `READ`), and usage measurement for Claude Code and Codex
 - **precedence**: base
@@ -203,7 +205,7 @@ repository, in `~/.mem/mem-stats/state/`.
 
 ### mem-optimize
 
-- **version**: 0.1.0
+- **version**: 0.1.1
 - **provides**: `OPTIMIZE` (subcommands `SETUP`, `STATUS`, `RESET`, `PAGES`), and context-lifecycle hooks for
   Claude Code and Codex
 - **precedence**: base

@@ -22,6 +22,44 @@ Before applying an upgrade, identify the current local MEM version and the targe
 1.0.0 through 1.0.2. A knowledge base on a base earlier than 1.0.3 should be re-initialized against the current
 MEM version rather than migrated step by step.
 
+## 1.2.0 -> 1.2.1
+
+### Summary
+
+A build release that gives a version to changes made after 1.2.0 was published, so existing installations notice
+them. The core text is unchanged apart from the version and one rule already listed under 1.2.0: scripts, tests and
+helpers the agent writes **should** start their child processes without visible windows ("Code modification
+rules"). Three extensions move: `mem-toolbox` 1.0.3 keeps machine facts — tools root, agent environments, where each
+tool is — in one file per host, `~/.mem/mem-toolbox/host.md`, instead of one per knowledge base, adds
+`MEM TOOLS SETUP`, and makes the knowledge base copy optional (`extensions_mem_toolbox_kb_copy`, default `false`);
+`mem-stats` 0.1.1 and `mem-optimize` 0.1.1 carry fixes and the "unused tools" rules described in the changelog.
+
+### Required actions
+
+- Replace `MEM.md` with version 1.2.1.
+- The extension version check now reports `mem-toolbox` 1.0.3, `mem-stats` 0.1.1 and `mem-optimize` 0.1.1 where they
+  are installed. Propose each update as usual; never apply one without approval.
+- After `mem-toolbox` is updated: when `~/.mem/mem-toolbox/host.md` is missing and this knowledge base holds
+  `extensions/mem-toolbox/custom/installed/<host>.md` for the current host, propose importing it into the machine
+  file with one confirmation, as "Existing host files" describes. Do **not** ask the tools root or environment
+  questions again. Leave the knowledge base file in place, and say it is no longer updated unless the user sets
+  `extensions_mem_toolbox_kb_copy: true`. Do not set it unasked.
+- After `mem-stats` is updated: run `runner/setup.py apply` again with the recorded answers. The hook runs from a
+  versioned copy, so its command changes; on Codex, tell the user to approve the changed hook with `/hooks`.
+- After `mem-optimize` is updated: run `MEM OPTIMIZE SETUP` again with the same answers, for the same reason, and
+  offer the unused-tools question again, now with `Artifact` always among the options.
+
+### Configuration changes
+
+- `mem-toolbox` adds `extensions_mem_toolbox_kb_copy: false`. No core option was added, removed or renamed.
+
+### Verification
+
+- `MEM.md` reports version 1.2.1.
+- On a host where `mem-toolbox` is active, `~/.mem/mem-toolbox/host.md` exists after the first tool lookup or
+  `MEM TOOLS SETUP`, and the tools root was not asked again when a host file already existed.
+- `mem-stats` STATUS shows hooks pointing to `~/.mem/mem-stats/0.1.1/runner/`.
+
 ## 1.1.8 -> 1.2.0
 
 ### Summary

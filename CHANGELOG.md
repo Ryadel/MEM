@@ -4,6 +4,32 @@ All notable MEM changes are documented in this file.
 
 MEM uses `MAJOR.MINOR.BUILD` versioning. Version-to-version migration steps are documented in [MEM.upgrade.md](MEM.upgrade.md).
 
+## 1.2.1 - 2026-10-16
+
+### Changed
+
+- `MEM.md` gets a version of its own for the rule added after 1.2.0 was published: scripts, tests and helpers the
+  agent writes **should** start child processes without visible windows.
+- **`mem-toolbox` 1.0.3**: machine facts move out of the knowledge base into one file per host,
+  `~/.mem/mem-toolbox/host.md`, shared by every project on that computer. The tools root and the agent environments
+  are asked once per host instead of once per knowledge base, and a tool probed in one project is known in all.
+  New `MEM TOOLS SETUP` wizard. The copy in the knowledge base (`custom/installed/<host>.md`) becomes optional,
+  off by default. An existing host file for the current host is imported with one confirmation, without asking the
+  questions again. The bootstrap entry and the `source control` question are gone.
+- **`mem-stats` 0.1.1**: the setup removes only its own hook commands, never another tool's in the same group; a
+  queued import leaves the queue only once it succeeded, with retries; the history backfill takes the worker's lock;
+  WATCH notices a replaced last event; messages preserved by a compaction are counted when a prompt starts on the
+  summary; the inventory schema accepts only a boolean `extensions_enabled`; incremental imports recompute when the
+  knowledge bases or the tokenizer differ. `fixed_overhead` adds, per tool, `calls_per_1000_requests` and
+  `last_called`, and a `rarely_called` list.
+- **`mem-optimize` 0.1.1**: the "unused tools" question always offers `Artifact`, plus every tool never or rarely
+  called and every tool weighing at least 1% of input; it pre-selects only tools without calls in the last 30 days.
+  A handoff note too long to inline is pointed at by the name it keeps once consumed.
+
+### Configuration
+
+- Added the extension option `extensions_mem_toolbox_kb_copy: false`. No core option changed.
+
 ## 1.2.0 - 2026-10-15
 
 ### Added

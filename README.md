@@ -272,9 +272,9 @@ The `mem-commands` extension adds three more. It is not installed by default; th
 
 ### Tooling from `mem-toolbox`
 
-The `mem-toolbox` extension answers two questions an agent otherwise re-derives every session: which tool or library to use for a task, and whether it is actually installed here. It adds `MEM TOOLS`, which lists what is known.
+The `mem-toolbox` extension answers two questions an agent otherwise re-derives every session: which tool or library to use for a task, and whether it is actually installed here. It adds `MEM TOOLS`, which lists what is known, and `MEM TOOLS SETUP`, a wizard that records this machine's answers once.
 
-It keeps those two answers apart, and that separation is the point. Which tool a project uses is portable knowledge and belongs in the repository. Whether a tool exists at a given path is true of one machine only, so it lives in per-host files. Recording availability as a plain fact would let an agent on a colleague's machine read "available", skip asking you, and fail — so availability is always stamped with a host and a date, and evidence from another machine is treated as a hint rather than proof.
+It keeps those two answers apart, and that separation is the point. Which tool a project uses is portable knowledge and belongs in the repository. Whether a tool exists at a given path is true of one machine only, so it lives on the machine: one file, `~/.mem/mem-toolbox/host.md`, shared by every project on that computer. Where your portable tools live, and which Python or Node environment the agent uses, are asked once per computer, never once per project, and a tool found while working on one project is known in all of them. If your team wants that knowledge in the repository, a setting keeps a copy in the knowledge base; it is off by default, since machine paths rarely belong in a commit. Recording availability as a plain fact would let an agent on a colleague's machine read "available", skip asking you, and fail — so availability is always stamped with a host and a date, and evidence from another machine is treated as a hint rather than proof.
 
 Per-host observations are written automatically, since they only record what a version command answered. Catalogue entries need confirmation, because deciding "this is what we use for X" is a judgement rather than an observation. Absence is recorded too: a tool you declined is not proposed again next session.
 
@@ -499,7 +499,7 @@ Updating `MEM.md` updates the core and nothing else, so an installation can quie
 
 It reports and offers; it never updates an extension on its own. A version gap is not permission, for the same reason being listed in the manifest is not permission. Extensions you wrote yourself are simply reported as unchecked: there is nothing to compare them against, and MEM says so rather than implying they are current.
 
-An extension may also declare a **bootstrap entry**: one file under its own `custom/` that is created when the extension is installed, instead of the first time it has something to write. It exists for data an agent would otherwise have nowhere obvious to put — `mem-toolbox` uses it for the per-host file that records where your tools actually are — and it is the single exception to "an empty `custom/` is normal".
+An extension may also declare a **bootstrap entry**: one file under its own `custom/` that is created when the extension is installed, instead of the first time it has something to write. It exists for data an agent would otherwise have nowhere obvious to put — `mem-workspace` uses it for the file that records which folder holds which repository — and it is the single exception to "an empty `custom/` is normal".
 
 ### Extensions that ship code
 
