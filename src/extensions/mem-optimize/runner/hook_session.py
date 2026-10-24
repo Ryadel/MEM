@@ -1,4 +1,5 @@
-"""SessionStart hook for Claude Code and Codex: resume a new session from a handoff note the agent wrote before `/clear`.
+"""Session-start hook for Claude Code, Codex and the clients in clients.py: resume a new session from a handoff note
+the agent wrote before `/clear`.
 
 The agent writes the note only after the user confirms a restart; the user types `/clear`; this hook injects the
 note into the fresh session as `additionalContext`, then marks it consumed so it is never injected twice. It also
@@ -7,15 +8,20 @@ kept beside it when no handoff note exists, deleting both once delivered. With -
 compaction (source `compact`) gets a short pointer to re-orient from the knowledge base. A note older
 than --max-age, or a session started for another reason, is left alone.
 
-A user who opens a new conversation instead of typing `/clear` (source `startup`: the VS Code new-chat button, Codex
-`/new`) gets the same carry-over, but only from a note younger than --startup-max-age that this project wrote: another
-session of the same project must have been active since the note was written (Claude Code keeps one transcript folder
-per project; a Codex rollout names its cwd), and a held prompt must carry this session's cwd. Standard library only;
-on any error it prints nothing and the session starts normally.
+The advisor names one note per working directory (handoff-<hash of the folder>.md beside --handoff), so a note is
+delivered only in the folder it was written for. A user who opens a new conversation instead of typing `/clear`
+(source `startup`: the VS Code new-chat button, Codex `/new`) gets the same carry-over, but only from a note younger
+than --startup-max-age: this folder's own note, or a note at the --handoff path itself (written before notes were
+per folder) when another session of the same project has been active since it was written (Claude Code keeps one
+transcript folder per project; a Codex rollout names its cwd; OpenCode's sessions name their directory). A held
+prompt must carry this session's cwd. Clients without `/clear` (OpenCode's and Kilo's /new: --client) always start
+that way; an OpenCode or Kilo session that already has messages is being resumed, not
+started. Standard library only; on any error it prints nothing and the session starts normally.
 """
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import re
@@ -38,6 +44,13 @@ def log(path, entry):
         pass
 
 
+def load_clients():
+    spec = importlib.util.spec_from_file_location("mem_optimize_clients", Path(__file__).with_name("clients.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def fresh(path, max_age):
     return path is not None and path.is_file() and time.time() - path.stat().st_mtime <= max_age
 
@@ -46,17 +59,17 @@ def folder(path):
     return os.path.normcase(os.path.normpath(path)) if path else None
 
 
-def project_active_since(event, since):
+def project_active_since(transcript, cwd, since):
     """Whether another session of this one's project wrote to its transcript at or after `since` (with a few seconds
     of slack): the session that wrote the note goes on writing its transcript after the note. Claude Code keeps one
     transcript folder per project; Codex dates its folders, so a rollout must name this session's cwd in its
     session_meta line."""
-    current = Path(event.get("transcript_path") or "")
+    current = Path(transcript or "")
     if not current.name or not current.parent.is_dir():
         return False
-    cwd = folder(event.get("cwd"))
+    cwd = folder(cwd)
     for other in current.parent.glob("*.jsonl"):
-        if other.name == current.name or other.stat().st_mtime < since - 5:
+        if other == current or other.stat().st_mtime < since - 5:
             continue
         with open(other, "rb") as stream:
             first = stream.readline(1 << 20)
@@ -68,14 +81,14 @@ def project_active_since(event, since):
     return False
 
 
-def held_here(held, event):
+def held_here(held, cwd):
     """Whether the held prompt was stopped in this session's working directory (prompts held before the cwd was
     recorded do not qualify)."""
     try:
         kept = json.loads(held.read_text(encoding="utf-8")).get("cwd")
     except (OSError, ValueError, AttributeError):
         return False
-    return kept is not None and folder(kept) == folder(event.get("cwd"))
+    return kept is not None and folder(kept) == folder(cwd)
 
 
 def compact_pointer(kb_root):
@@ -103,25 +116,49 @@ def main():
     parser.add_argument("--startup-max-age", type=float, default=900,
                         help="seconds after which a new conversation (source startup) no longer takes the note")
     parser.add_argument("--log", type=Path, help="append one JSON line per event (no content)")
+    parser.add_argument("--client", default="claude", help="the client running the hook (see clients.py)")
     args = parser.parse_args()
     entry = {"at": time.strftime("%Y-%m-%dT%H:%M:%S")}
     try:
+        clients = load_clients()
         event = json.loads(sys.stdin.buffer.read().decode("utf-8"))
-        source = event.get("source")
-        entry.update(event=event.get("hook_event_name"), source=source, session=event.get("session_id"),
-                     fields=sorted(event.keys()))
-        note, held = args.handoff, args.held
+        entry.update(client=args.client, fields=sorted(event.keys()) if isinstance(event, dict) else None)
+        why = clients.foreign(args.client, event)
+        if why:
+            entry["decision"] = why
+            return
+        info = clients.normalized(args.client, event)
+        source, cwd, transcript, session = info["source"], info["cwd"], info["transcript"], info["session"]
+        entry.update(event=event.get("hook_event_name"), source=source, session=session)
+        held = args.held
+        # The advisor names a note per working directory; the base path is where earlier versions had it written.
+        base, mine = args.handoff, clients.project_note(args.handoff, cwd)
         startup = source == "startup"
+        claude_style = args.client in clients.CLAUDE_STYLE
+        # Claude Code, Codex and Droid always name the transcript: a startup payload without one is another client's.
+        evidence = bool(transcript) or not claude_style
+        if args.client in clients.OPENCODE_FAMILY and startup and transcript and clients.opencode_has_messages(
+                transcript, session):
+            startup, source = False, "resume"
         if startup:  # a new conversation, not /clear: only what this project left moments ago
-            has_note = fresh(note, args.startup_max_age) and project_active_since(event, note.stat().st_mtime)
-            has_held = fresh(held, args.startup_max_age) and held_here(held, event)
+            if mine != base and evidence and fresh(mine, args.startup_max_age):
+                note, has_note = mine, True  # this folder's own note
+            else:
+                note = base
+                if args.client in clients.OPENCODE_FAMILY:
+                    has_note = fresh(note, args.startup_max_age) and bool(transcript) and clients.opencode_active_since(
+                        transcript, session, cwd, note.stat().st_mtime)
+                else:
+                    has_note = fresh(note, args.startup_max_age) and project_active_since(
+                        transcript, cwd, note.stat().st_mtime)
+            has_held = fresh(held, args.startup_max_age) and evidence and held_here(held, cwd)
         else:
+            note = mine if fresh(mine, args.max_age) else base
             has_note, has_held = fresh(note, args.max_age), fresh(held, args.max_age)
         restart = "the restart" if startup else "/clear"
         if source == "compact" and args.compact:
             context = compact_pointer(args.kb_root)
-            sys.stdout.write(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart",
-                                                                "additionalContext": context}}, ensure_ascii=False))
+            sys.stdout.write(json.dumps(clients.session_output(args.client, context), ensure_ascii=False))
             entry.update(decision="pointer", chars=len(context))
         elif source not in args.sources.split(","):
             entry["decision"] = "source-not-handled"
@@ -139,8 +176,11 @@ def main():
                     text = ("A handoff note from the previous session is too long to inline; read it first: "
                             + str(consumed.resolve()))
                 written = time.strftime("%H:%M", time.localtime(note.stat().st_mtime))
-                opened = (" The user opened a new conversation instead of typing /clear: if the note is about another "
-                          "project than this session's working directory, ignore it and say so." if startup else "")
+                opened = ("" if not startup else
+                          " The user opened a new conversation instead of typing /clear: if the note is about another "
+                          "project than this session's working directory, ignore it and say so." if claude_style else
+                          " This is a new conversation: if the note is about another project than this session's "
+                          "working directory, ignore it and say so.")
                 parts.append("Resuming from the previous session's handoff note (written before " + restart + " at "
                              "the user's confirmation). Continue from it; do not ask the user to repeat it." + opened +
                              "\n\n" + text)
@@ -173,9 +213,7 @@ def main():
                                            " and ".join(confirm) + ".")
             # systemMessage reaches the user only on clients that display it
             notice = "MEM: " + " and ".join(confirm) + "."
-            sys.stdout.write(json.dumps({"systemMessage": notice,
-                                         "hookSpecificOutput": {"hookEventName": "SessionStart",
-                                                                "additionalContext": context}}, ensure_ascii=False))
+            sys.stdout.write(json.dumps(clients.session_output(args.client, context, notice), ensure_ascii=False))
             if has_note:
                 note.rename(consumed)
             if has_held:
@@ -183,7 +221,8 @@ def main():
             entry.update(decision="injected", chars=len(context), note=has_note, held=has_held)
     except Exception as error:  # never break a session start
         entry["decision"] = "error: " + type(error).__name__
-    log(args.log, entry)
+    finally:
+        log(args.log, entry)
 
 
 if __name__ == "__main__":

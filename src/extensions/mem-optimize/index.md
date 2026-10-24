@@ -5,16 +5,18 @@ grown large, or that resumes after the prompt cache expired, costs far more than
 knowledge base. mem-optimize watches the session's size, tells the agent when a restart pays, carries the work into
 the fresh session, and stops the first prompt after a long pause before it rewrites the whole context into the cache.
 
-- **version**: 0.1.2
+- **version**: 0.2.0
 - **provides**: `OPTIMIZE`
 - **subcommands**: `SETUP`, `STATUS`, `RESET`, `PAGES` - closed set
 - **precedence**: base
 - **external actions**: no
-- **executable content**: yes - `runner/hook_prompt.py`, `runner/hook_session.py`, `runner/wizard.py`,
-  `runner/pages.py`
+- **executable content**: yes - `runner/hook_prompt.py`, `runner/hook_session.py`, `runner/clients.py`,
+  `runner/wizard.py`, `runner/pages.py`, `runner/opencode-plugin.js`
 - **default mode**: may-write (settings files, only after the user confirms the plan)
-- **clients**: Claude Code (CLI and VS Code extension); Codex (CLI and app; its VS Code extension on Windows runs no
-  hooks while openai/codex#33413 is open — check before relying on it there)
+- **clients**: Claude Code (CLI, VS Code extension, desktop app); Codex (CLI and app; its VS Code extension on Windows
+  runs no hooks while openai/codex#33413 is open — check before relying on it there); Factory Droid; Qwen Code;
+  OpenCode; Kilo Code (CLI and VS Code extension) — every component in each; see [Clients](#clients) for the
+  clients left out and why
 - **customization**: `custom/` holds the setup log, settings backups and, for the project scope, runtime state.
 
 ## Commands
@@ -38,6 +40,53 @@ the fresh session, and stops the first prompt after a long pause before it rewri
 
 Thresholds are configurable. The advisor and the stop read the session transcript; they send nothing anywhere.
 
+## Clients
+
+Every component needs something from the client: the advisor a prompt hook that adds context and the session's
+token usage; the stop a prompt hook that blocks with a message; the guided restart a session-start hook that adds
+context; compaction support a hook on compaction. **mem-optimize supports a client only when it can carry the advice
+to the agent and the stop message to the user**: a client that runs it halfway would leave the user guessing what it
+does. Supported clients:
+
+| Client | Settings mem-optimize writes | Advisor | Restart | Stop | Compaction |
+|---|---|---|---|---|---|
+| Claude Code (CLI, VS Code, desktop app's local sessions) | `~/.claude/settings.json` or `.claude/settings.local.json` | yes | yes | yes | yes |
+| Codex | `~/.codex/hooks.json` or `.codex/hooks.json` | yes | yes | yes | yes |
+| Factory Droid | `~/.factory/hooks.json`² | yes | yes | yes | yes |
+| Qwen Code | `~/.qwen/settings.json`, plus a `Stop` hook that records usage³ | yes | yes | yes | yes |
+| OpenCode | `~/.config/opencode/plugins/mem-optimize.js` | yes | yes (`/new`) | yes¹ | yes⁴ |
+| Kilo Code (CLI, VS Code) | `~/.config/kilo/plugin/mem-optimize.js` (module descriptor) | yes | yes (`/new`) | yes¹ | yes⁴ |
+
+¹ Thrown from the plugin's `chat.message`, which ends the prompt before it is saved; OpenCode's plugin hooks used
+here are partly `experimental`. ² Droid reads `settings.json`'s `hooks` key only while `hooks.json` does not exist: the wizard writes there only when
+the user's hooks already live there. ³ Qwen's `Stop` hook receives the last request's `input_tokens`, kept in one file
+per session; the prompt hook reads them when the transcript carries no usage. Qwen also runs `UserPromptSubmit` on
+tool results and other continuations: only an event with `submitted_prompt` (the user's text, before any command
+expansion) is advised, stopped or held, and that text is what gets carried over. ⁴ `experimental.session.compacting` runs before the summary is
+written, so the pointer is kept and added, through `experimental.chat.messages.transform`, to the first user message
+after the compaction (the automatic continuation or the next prompt), identically in every later request; when the
+plugin stops a prompt it shows the reason in a TUI toast, because OpenCode reports a plugin's error only as
+"Unexpected server error".
+
+Only Claude Code and Codex take the project scope; the others are configured for all projects. Usage is read from
+Claude Code's and Codex's transcripts, from OpenCode's database (`opencode.db`) and Kilo's (found in its data
+folder) — or the one `OPENCODE_DB` / `KILO_DB` names in the client's environment, which the plugin resolves as the
+client does (absolute as is, relative inside the data folder) — from Qwen's `Stop` hook, and from Droid's and Qwen's transcripts by recognising any common usage shape
+(`clients.py`); when none is found the advisor and the stop stay silent.
+
+Not supported, because they cannot carry both messages:
+
+| Client | Missing |
+|---|---|
+| Cursor | the advice: `beforeSubmitPrompt` can block but not add context; `sessionStart` context reportedly does not always reach the model |
+| Antigravity (app, IDE, `agy` CLI) | both: `PreInvocation` cannot block, and its transcript has no token counts (only an undocumented binary format in the conversation's database) |
+| GitHub Copilot | the advice: it ignores the output of prompt hooks |
+| Windsurf / Devin Desktop | the advice: no context from prompt hooks, no session hook |
+| Cline | hooks not available on Windows at launch |
+
+Cursor and Copilot can also run Claude Code's own hooks with payloads of their own: the runners recognise those and
+do nothing.
+
 ## When executable content is not allowed
 
 Every component is code. When this extension is loaded or invoked, or the user asks to install it, and
@@ -47,8 +96,9 @@ run any runner and **must**:
 1. tell the user that the setting is off, and that MEM therefore forbids running this extension's code;
 2. say plainly what follows: **while the setting stays `false`, mem-optimize is installed but does nothing** — no
    advice, no restart carry-over, no stop after a long pause, and the wizard cannot run;
-3. ask for authorization to set `extensions_allow_executable_content: true`, naming the four runners as the code
-   that would then run, and noting that the setting covers every installed extension declaring executable content;
+3. ask for authorization to set `extensions_allow_executable_content: true`, naming the runners listed under
+   **executable content** as the code that would then run, and noting that the setting covers every installed
+   extension declaring executable content;
 4. change `MEM.config.md` only after an explicit yes. On a no, run nothing and do not ask again in the session.
 
 ## Setup wizard (`MEM OPTIMIZE SETUP`)
@@ -59,10 +109,14 @@ recommended option first, in the user's language. **Explain every question
 plainly**: what the option does, what it costs, what changes if refused. Write nothing until the final confirmation.
 
 0. **Executable content** — only if off: as in the section above. Without it the wizard stops.
-   **Clients** (multi-select) — Claude Code · Codex, pre-selecting those installed (`~/.claude/`, `~/.codex/`).
-   Explain that both receive the same hooks; that Codex runs a new or changed hook only after the user approves it
-   with `/hooks` (CLI) or the app's hook review; and that questions 4 and 8 concern Claude Code only, since Codex
-   has no equivalent of its tool and permission lists.
+   **Clients** (multi-select) — Claude Code · Codex · Factory Droid · Qwen Code · OpenCode · Kilo Code, offering
+   and pre-selecting those installed (`~/.claude/`, `~/.codex/`, `~/.factory/`, `~/.qwen/`, `~/.config/opencode/` or
+   the `opencode` command, `~/.config/kilo/` or the `kilo` command). If the user also works in an unsupported client
+   (Cursor, Antigravity, …), say plainly that mem-optimize does nothing there and why, from [Clients](#clients); that
+   Codex runs a new or changed hook only after the user approves it with `/hooks` (CLI) or the app's hook
+   review; that OpenCode and Kilo load the plugin when they restart; that the clients other than Claude Code and Codex
+   are configured for all projects; and that questions 4 and 8 concern Claude Code only. When questions are capped at
+   four options, split the clients over two questions.
 1. **Advisor** — on at 400k / 600k (recommended) · custom thresholds · off. Explain that it is silent below the
    threshold and what the advice looks like.
 2. **Guided restart** — on (recommended) · off. Explain the flow: agreement, handoff note, `/clear`, the confirmation
@@ -126,21 +180,24 @@ the middle of a change. Only after the user agrees: update the KB's resume point
 write the handoff note to the path the advisor names (state, decisions made, next step, files to read; under 8,000
 characters); then ask the user to type `/clear` and send any message. Never write the note unasked.
 
-A new conversation opened instead of `/clear` (the VS Code new-chat button, Codex `/new`: source `startup`) also
-receives the note, but only within 15 minutes of it being written and only when another session of the same project
-was active since — the hook cannot tell otherwise whose note it is. A held message passes the same way only in the
-folder it was stopped in. `/clear` stays the recommended way.
+The advisor names a note of the session's own folder (`handoff-<hash of the folder>.md`), so a note is delivered
+only in the project it was written for. A new conversation opened instead of `/clear` (the VS Code new-chat button,
+Codex `/new`: source `startup`) also receives it, but only within 15 minutes of it being written. A held message
+passes the same way only in the folder it was stopped in. `/clear` stays the recommended way. Clients without
+`/clear` restart this way only: OpenCode and Kilo with `/new`, which the advice and the stop message name.
 
 ## Files
 
 | Path | Content |
 |---|---|
-| `runner/hook_prompt.py` | `UserPromptSubmit` hook: advisor and long-pause stop |
-| `runner/hook_session.py` | `SessionStart` hook (`clear`, `startup`): injects the handoff note, or the held message and its snapshot |
+| `runner/hook_prompt.py` | Prompt hook (`UserPromptSubmit` and the other clients' equivalents): advisor and long-pause stop |
+| `runner/hook_session.py` | Session-start hook (`clear`, `startup`, `compact`): injects the handoff note, or the held message and its snapshot, or the compaction pointer |
+| `runner/clients.py` | Each client's payload, usage source and answer format; recognises other clients' payloads |
+| `runner/opencode-plugin.js` | Template of OpenCode's and Kilo's plugin: the wizard fills in the interpreter, runner arguments and database |
 | `runner/wizard.py` | `plan`, `apply`, `reset`, `status` |
 | `runner/pages.py` | `MEM OPTIMIZE PAGES`: heavy pages from a mem-stats report, with suggestions |
 | `custom/setup-log.json`, `custom/backups/` | What setup added, and the settings files as they were |
-| `custom/state/` (project scope) or `~/.mem/mem-optimize/state/` (all projects) | Runtime state: advisor state, held prompt, handoff note, logs without content. Self-ignoring `.gitignore`: never committed |
+| `custom/state/` (project scope) or `~/.mem/mem-optimize/state/` (all projects) | Runtime state: advisor state, held prompt, handoff notes (one per folder), Qwen's recorded usage (`usage-recorded/`, one file per session), logs without content. Self-ignoring `.gitignore`: never committed |
 
 For all projects, setup copies the runners to `~/.mem/mem-optimize/<version>/runner/`, so the hooks do not depend on
 one project's KB.

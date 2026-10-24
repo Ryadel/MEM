@@ -1,6 +1,8 @@
-"""UserPromptSubmit hook for Claude Code and Codex: tell the agent when the session's context has grown costly, and
-optionally stop the first prompt after a long pause. Both clients accept the same hook output; the transcript format
-is recognised from its lines.
+"""Prompt hook for Claude Code, Codex and the clients in clients.py: tell the agent when the session's context has
+grown costly, and optionally stop the first prompt after a long pause. Claude Code, Codex and Factory Droid accept the
+same hook output, and the transcript format is recognised from its lines; --client names another client (Droid, Qwen
+Code, OpenCode and Kilo through their plugin), whose payload and answer clients.py translates. A payload from a client other than --client (Cursor and GitHub Copilot also run Claude Code's hooks) gets
+nothing.
 
 Reads the size of the last request from the session transcript. Below the advise threshold it prints nothing, so it
 adds no tokens. At or above it, it adds one short line of context asking the agent to propose a guided restart at the
@@ -20,11 +22,11 @@ Standard library only; on any error it prints nothing and the prompt goes throug
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import re
 import sys
 import time
-from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 
@@ -37,16 +39,29 @@ LEVELS = ("none", "advise", "insist")
 STOP = {
     "en": ("mem-optimize: {pause} since the last reply, longer than the prompt cache lasts. Sending this message "
            "in this session would re-write the whole context into the cache: ~{size}k tokens{cost}.\n"
-           "(A, recommended) Type /clear, then send any short message: your message will be carried automatically "
+           "(A, recommended) {action}, then send any short message: your message will be carried automatically "
            "into the new session, where you can resume work without this cost.\n"
            "(B) Send a message again within {window} minutes, this one or another, to continue here anyway."),
     "it": ("mem-optimize: sono passati {pause} dall'ultima risposta, più della durata della cache. Inviare questo "
            "messaggio in questa sessione riscriverebbe in cache tutto il contesto: ~{size}k token{cost}.\n"
-           "(A, consigliato) Scrivi /clear, poi invia un messaggio qualsiasi: il tuo messaggio verrà automaticamente "
+           "(A, consigliato) {action}, poi invia un messaggio qualsiasi: il tuo messaggio verrà automaticamente "
            "portato nella nuova sessione, dove potrai riprendere il lavoro senza questa spesa.\n"
            "(B) Invia di nuovo un messaggio entro {window} minuti, questo o un altro, per continuare qui comunque."),
 }
 COST = {"en": ", about {currency} {amount:.2f} at API rates", "it": ", circa {currency} {amount:.2f} a tariffe API"}
+# How the user starts a fresh session: a slash command (/clear, OpenCode's /new).
+ACTION = {"en": "Type {command}", "it": "Scrivi {command}"}
+
+
+def load_clients():
+    spec = importlib.util.spec_from_file_location("mem_optimize_clients", Path(__file__).with_name("clients.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def action(lang, restart):
+    return ACTION[lang].format(command=restart)
 
 
 def log(path, entry):
@@ -151,7 +166,7 @@ def rate_cost(card, key, tokens):
     return card.get("currency", "USD"), Decimal(str(card[key])) * tokens / Decimal(1_000_000)
 
 
-def advice(level, tokens, cost, handoff=None):
+def advice(level, tokens, cost, handoff=None, restart="/clear"):
     size = "~%dk tokens" % round(tokens / 1000)
     price = "" if cost is None else ", about %s %.2f per request at API rates" % (cost[0], cost[1])
     if level == "insist":
@@ -167,7 +182,7 @@ def advice(level, tokens, cost, handoff=None):
     if handoff is not None:
         steps += ("write a handoff note to " + handoff.as_posix() + " (state, decisions made, next step, files to "
                   "read; plain Markdown, under 8,000 characters); ")
-    return text + steps + "then ask the user to type /clear and send any message to resume."
+    return text + steps + "then ask the user to type " + restart + " and send any message to resume."
 
 
 def clip(text, limit):
@@ -245,10 +260,10 @@ def codex_turn(payload, found):
                 found[-1]["files"].append(target.strip())
 
 
-def snapshot(path, budget):
-    """The latest turns that fit in budget characters, rendered oldest first; empty when none fit."""
+def snapshot(found, budget):
+    """The latest of the turns found that fit in budget characters, rendered oldest first; empty when none fit."""
     parts = []
-    for turn in reversed(turns(path)):
+    for turn in reversed(found):
         lines = ["User: " + clip(turn["prompt"], 600)]
         if turn["files"]:
             lines.append("Files changed: " + ", ".join(turn["files"][:10]) + (" …" if len(turn["files"]) > 10 else ""))
@@ -285,20 +300,44 @@ def main():
                         help="size of the snapshot of recent exchanges kept with a held prompt (0: none)")
     parser.add_argument("--lang", choices=sorted(STOP), default="en", help="language of the message shown to the user")
     parser.add_argument("--log", type=Path, help="append one JSON line per prompt (no content)")
+    parser.add_argument("--client", default="claude", help="the client running the hook (see clients.py)")
+    parser.add_argument("--restart", default="/clear",
+                        help="the slash command that starts a fresh session")
     args = parser.parse_args()
     if args.pause_stop and args.held is None:
         parser.error("--pause-stop needs --held")
     entry = {"at": time.strftime("%Y-%m-%dT%H:%M:%S")}
     try:
+        clients = load_clients()
         event = json.loads(sys.stdin.buffer.read().decode("utf-8"))
-        session = event.get("session_id") or ""
-        entry["session"] = session
-        if not Path(event["transcript_path"]).is_file():  # a new session's first prompt: nothing written yet
-            entry["decision"] = "no-transcript"
+        why = clients.foreign(args.client, event)
+        if why:
+            entry["decision"] = why
             return
-        record = last_usage(Path(event["transcript_path"]), args.codex_ttl)
-        if record is None:
-            entry["decision"] = "no-usage"
+        info = clients.normalized(args.client, event)
+        session, transcript = info["session"], info["transcript"]
+        entry.update(session=session, client=args.client)
+        recorded = args.state.with_name("usage-recorded")  # Qwen Code's Stop hook writes one file per session there
+        if event.get("hook_event_name") == "Stop":  # not a prompt: remember the usage, say nothing
+            entry["decision"] = "recorded" if clients.record_usage(recorded, event) else "no-usage-in-stop"
+            return
+        if not info["typed"]:  # a continuation (Qwen: tool result, retry): never stopped, held or advised
+            entry["decision"] = "not-a-user-prompt"
+            return
+        written = bool(transcript) and Path(transcript).is_file()
+        record = None
+        if written and args.client in clients.OPENCODE_FAMILY:
+            record = clients.opencode_usage(transcript, session, args.codex_ttl)
+        elif written:
+            record = last_usage(Path(transcript), args.codex_ttl)
+            if record is None and args.client not in ("claude", "codex"):
+                record = clients.generic_usage(backwards(Path(transcript)), transcript)
+        if record is None and args.client == "qwen":
+            record = clients.recorded_usage(recorded, session)
+        if record is None and args.client == "droid" and transcript:
+            record = clients.droid_usage(transcript)
+        if record is None:  # a new session's first prompt: nothing written yet
+            entry["decision"] = "no-usage" if written else "no-transcript"
             return
         usage, model, tokens = record["usage"], record["model"], record["tokens"]
         ttl = record["ttl"] or cache_ttl(usage, args.ttl)
@@ -312,7 +351,8 @@ def main():
         mine["seen"] = now
         entry["tokens"] = tokens
         output = None
-        idle = now - datetime.fromisoformat(record["at"]).timestamp() if record.get("at") else 0
+        at = clients.instant(record.get("at"))
+        idle = now - at if at else 0
         if args.pause_stop and tokens >= args.pause_min and idle >= (args.pause_after or ttl):
             entry["idle_seconds"] = round(idle)
             if now - mine.get("stopped", 0) <= args.resend_window:
@@ -323,10 +363,12 @@ def main():
                 card = card_for(model, usage, args.prices)
                 cost = rate_cost(card, "cache_write_1h" if ttl == 3600 else "cache_write", tokens)
                 # cwd: a new conversation (not /clear) takes the prompt only in the same folder
-                held = {"session": session, "at": now, "prompt": event.get("prompt") or "", "cwd": event.get("cwd")}
+                held = {"session": session, "at": now, "prompt": info["prompt"], "cwd": info["cwd"]}
                 if args.snapshot_chars > 0:
                     try:
-                        held["snapshot"] = snapshot(Path(event["transcript_path"]), args.snapshot_chars)
+                        found = (clients.opencode_turns(transcript, session)
+                                 if args.client in clients.OPENCODE_FAMILY else turns(Path(transcript)))
+                        held["snapshot"] = snapshot(found, args.snapshot_chars)
                     except Exception as error:  # the held prompt matters more than the snapshot
                         entry["snapshot"] = "error: " + type(error).__name__
                     else:
@@ -336,8 +378,9 @@ def main():
                 mine["stopped"] = now
                 text = STOP[args.lang].format(
                     pause=duration(idle), size=round(tokens / 1000), window=args.resend_window // 60,
+                    action=action(args.lang, args.restart),
                     cost="" if cost is None else COST[args.lang].format(currency=cost[0], amount=cost[1]))
-                output = {"decision": "block", "reason": text}
+                output = clients.prompt_output(args.client, block=text)
                 entry["decision"] = "stopped"
         if output is None and args.no_advice:
             entry.setdefault("decision", "silent")
@@ -349,8 +392,9 @@ def main():
             entry.update(level=level, told=told)
             if level != "none" and LEVELS.index(level) > LEVELS.index(told):
                 cost = rate_cost(card_for(model, usage, args.prices), "cached_input", tokens)
-                output = {"hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
-                                                 "additionalContext": advice(level, tokens, cost, args.handoff)}}
+                # Each working directory has a note of its own: the session start delivers only this folder's.
+                note = clients.project_note(args.handoff, info["cwd"])
+                output = clients.prompt_output(args.client, context=advice(level, tokens, cost, note, args.restart))
                 entry["decision"] = "advised"
             else:
                 entry.setdefault("decision", "silent")
