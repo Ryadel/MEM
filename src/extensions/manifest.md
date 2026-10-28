@@ -205,7 +205,7 @@ repository, in `~/.mem/mem-stats/state/`.
 
 ### mem-optimize
 
-- **version**: 0.2.0
+- **version**: 0.2.1
 - **provides**: `OPTIMIZE` (subcommands `SETUP`, `STATUS`, `RESET`, `PAGES`), and context-lifecycle hooks for
   Claude Code, Codex, Factory Droid, Qwen Code, OpenCode and Kilo Code
 - **precedence**: base
@@ -229,5 +229,6 @@ extensions/mem-optimize/runner/pages.py
 extensions/mem-optimize/runner/opencode-plugin.js
 ```
 
-The setup log, settings backups and runtime state live under `extensions/mem-optimize/custom/`, never listed here;
-the runtime state folder carries its own `.gitignore`.
+The project scope's setup log, settings backups and runtime state live under `extensions/mem-optimize/custom/`,
+never listed here; the runtime state folder carries its own `.gitignore`. The user scope's live outside the repository,
+in `~/.mem/mem-optimize/`.

@@ -87,13 +87,43 @@ def folder(path):
     return os.path.normcase(os.path.normpath(path)) if path else None
 
 
-def project_note(base, cwd):
-    """The handoff note of one working directory: handoff-<12 hex>.md beside the base path. The advisor names it, so
-    a note written for one project can never be delivered in another; without a cwd, the base path itself."""
+def digest(text, length):
+    return hashlib.sha1(text.encode("utf-8")).hexdigest()[:length]
+
+
+def project_note(base, cwd, session=None):
+    """A handoff note of one working directory: handoff-<12 hex of the folder>-<8 hex of the session>.md beside the
+    base path. The advisor names it, so a note written for one project is never delivered in another, and two
+    conversations in one folder never overwrite each other's. Without a cwd, None: the base path itself is never
+    used (every project would read it)."""
     if base is None or not cwd:
-        return base
-    key = hashlib.sha1(folder(cwd).encode("utf-8")).hexdigest()[:12]
-    return base.with_name(base.stem + "-" + key + base.suffix)
+        return None
+    name = base.stem + "-" + digest(folder(cwd), 12) + ("-" + digest(session, 8) if session else "")
+    return base.with_name(name + base.suffix)
+
+
+def project_notes(base, cwd):
+    """The notes not yet consumed of one working directory: every session's, and the folder's own of 0.2.0."""
+    if base is None or not cwd or not base.parent.is_dir():
+        return []
+    prefix = base.stem + "-" + digest(folder(cwd), 12)
+    return sorted(p for p in base.parent.glob(prefix + "*" + base.suffix)
+                  if ".consumed-" not in p.name and p.stem[len(prefix):len(prefix) + 1] in ("", "-"))
+
+
+def held_file(base, session):
+    """The prompt held for one session: held-prompt-<16 hex>.json beside the base path, so that a stop in one session
+    never overwrites, and a resend never deletes, another session's."""
+    return base.with_name(base.stem + "-" + digest(session or "", 16) + base.suffix)
+
+
+def held_files(base):
+    """Every held prompt waiting beside the base path, the base path itself included (one shared file before 0.2.1);
+    not one already delivered by path (renamed .consumed-<stamp>)."""
+    if base is None or not base.parent.is_dir():
+        return []
+    return sorted(p for p in base.parent.glob(base.stem + "*" + base.suffix) if ".consumed-" not in p.name
+                  and (p == base or p.stem[len(base.stem):len(base.stem) + 1] == "-"))
 
 
 def instant(value):
@@ -300,14 +330,6 @@ def opencode_has_messages(db, session):
     with closing(opencode_connect(db)) as connection:
         row = connection.execute("SELECT 1 FROM message WHERE session_id = ? LIMIT 1", (session,)).fetchone()
     return row is not None
-
-
-def opencode_active_since(db, session, cwd, since):
-    """Whether another session in this one's folder was updated at or after `since` (seconds, a few of slack)."""
-    with closing(opencode_connect(db)) as connection:
-        rows = connection.execute("SELECT directory FROM session WHERE id != ? AND time_updated >= ?",
-                                  (session, int((since - 5) * 1000))).fetchall()
-    return cwd is not None and any(folder(directory) == folder(cwd) for (directory,) in rows)
 
 
 def opencode_turns(db, session):

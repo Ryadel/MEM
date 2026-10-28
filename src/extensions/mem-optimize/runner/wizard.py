@@ -4,7 +4,9 @@ settings changes, apply them, undo them.
   plan    --answers FILE   show every file and key the answers would change; writes nothing
   apply   --answers FILE   back up each settings file, then write exactly what `plan` shows
   reset                    remove what mem-optimize added (its hooks, the tools it disabled, its allow rules)
-  status                   show what mem-optimize currently has in each settings file
+  status                   show what mem-optimize currently has in each settings file, and a shared handoff.md
+                           left by an earlier version (never delivered since 0.2.1)
+  note-path [--cwd DIR]    print where to write a handoff note for a restart in DIR (default: the current folder)
 
 Clients (`clients` in the answers; default Claude Code): Claude Code reads ~/.claude/settings.json (scope `user`,
 every project) or <workspace>/.claude/settings.local.json (scope `project`); Codex reads ~/.codex/hooks.json or
@@ -12,9 +14,11 @@ every project) or <workspace>/.claude/settings.local.json (scope `project`); Cod
 trusts it (/hooks), and has no permissions.deny/allow, so tool and report answers apply to Claude Code only. A client
 not chosen loses mem-optimize's earlier entries. Hook entries are recognised by the runner names below, so `apply` replaces
 them instead of adding duplicates, and other tools' hooks are never touched. For the user scope the runners are
-copied to ~/.mem/mem-optimize/<version>/runner, so the hooks do not depend on one project's KB. State (held prompt,
-handoff note, logs) lives in ~/.mem/mem-optimize/state, or in the extension's custom/state for the project scope,
-which carries a self-ignoring .gitignore: it holds the user's own words and must never be committed.
+copied to ~/.mem/mem-optimize/<version>/runner, so the hooks do not depend on one project's KB. State (held prompts,
+handoff notes, logs) lives in ~/.mem/mem-optimize/state, or in the extension's custom/state for the project scope,
+which carries a self-ignoring .gitignore: it holds the user's own words and must never be committed. What setup
+added to the user-scope files, and their backups, are recorded in ~/.mem/mem-optimize (setup-log.json, backups/), so
+that setup and reset run from any project see them; project-scope files keep theirs in the extension's custom/.
 
 The other clients take the user scope only: Factory Droid (~/.factory/hooks.json, Claude Code's event map at the top
 level; settings.json's "hooks" key instead only when it already holds the user's hooks and hooks.json does not exist,
@@ -39,6 +43,7 @@ Standard library only.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import re
@@ -355,13 +360,51 @@ def hooks_in(client, settings):
     return ["plugin"] if settings.get("plugin") else []
 
 
-def setup_log(layout):
-    return layout.extension / "custom" / "setup-log.json"
+def load_clients():
+    spec = importlib.util.spec_from_file_location("mem_optimize_clients", Path(__file__).with_name("clients.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def records(layout, scope):
+    """Where setup records what it changed in one scope's files: the user scope's in ~/.mem/mem-optimize, shared by
+    every project; the project scope's in the extension's custom/."""
+    return layout.home / ".mem" / "mem-optimize" if scope == "user" else layout.extension / "custom"
+
+
+def setup_log(layout, scope="user"):
+    return records(layout, scope) / "setup-log.json"
+
+
+def user_files(layout):
+    return {posix(layout.settings("user", client)) for client in CLIENTS}
 
 
 def read_log(layout):
-    log = load(setup_log(layout))
-    return log if isinstance(log, dict) else {}
+    """Both setup logs as one. Before 0.2.1 the project's log also recorded the user-scope files: those entries are
+    merged in, and move to the user-scope log at the next write (apply, reset)."""
+    log = {}
+    for scope in ("user", "project"):
+        found = load(setup_log(layout, scope))
+        for path, record in (found if isinstance(found, dict) else {}).items():
+            if not isinstance(record, dict):
+                continue
+            previous = log.get(path, {})
+            log[path] = {**record, **previous}
+            for key in ("deny", "allow"):
+                log[path][key] = sorted(set(previous.get(key, [])) | set(record.get(key, [])))
+    return log
+
+
+def write_log(layout, log):
+    users = user_files(layout)
+    for scope in ("user", "project"):
+        part = {path: record for path, record in log.items() if (path in users) == (scope == "user")}
+        target = setup_log(layout, scope)
+        if part or target.exists():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(json.dumps(part, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def targets(layout, scopes=SCOPES):
@@ -447,7 +490,6 @@ def write(path, client, settings):
 def apply(layout, answers):
     changes, copies, _ = plan(layout, answers)
     stamp = time.strftime("%Y%m%d-%H%M%S")
-    backups = layout.extension / "custom" / "backups" / stamp
     log = read_log(layout)
     for source, target in copies:
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -459,6 +501,7 @@ def apply(layout, answers):
             (state / ".gitignore").write_text("*\n", encoding="utf-8")
     for change in changes:
         path = Path(change["file"])
+        backups = records(layout, change["scope"]) / "backups" / stamp
         backup = backups / (change["client"] + "-" + change["scope"] + "-" + path.name)
         existed = path.exists()
         if existed:
@@ -469,8 +512,7 @@ def apply(layout, answers):
         log[change["file"]] = {key: sorted(set(previous.get(key, [])) | set(change["added"].get(key, [])))
                                for key in ("deny", "allow")}
         log[change["file"]].update(backup=posix(backup) if existed else None, applied=stamp)
-    setup_log(layout).parent.mkdir(parents=True, exist_ok=True)
-    setup_log(layout).write_text(json.dumps(log, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    write_log(layout, log)
     return changes
 
 
@@ -486,8 +528,7 @@ def reset(layout):
             write(path, client, after)
             changed.append(posix(path))
         log.pop(posix(path), None)
-    if setup_log(layout).exists():
-        setup_log(layout).write_text(json.dumps(log, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    write_log(layout, log)
     return changed
 
 
@@ -500,12 +541,23 @@ def status(layout):
             "file": posix(path), "hooks": hooks_in(client, settings),
             "denied_tools": [r for r in permissions.get("deny", []) if r in recorded.get("deny", [])],
             "allow_rules": [r for r in permissions.get("allow", []) if r in recorded.get("allow", [])]}
+    # The note every project read before 0.2.1: never delivered now, so shown here to be recovered by hand.
+    legacy = [layout.state(scope) / "handoff.md" for scope in SCOPES]
+    report["legacy_notes"] = [{"file": posix(note), "written": time.strftime(
+        "%Y-%m-%dT%H:%M:%S", time.localtime(note.stat().st_mtime))} for note in legacy if note.is_file()]
     return report
+
+
+def note_path(layout, scope, cwd, session=None):
+    """Where the agent writes a handoff note for a restart in cwd when the advisor named none (a restart the user
+    asked for): a name of its own in that folder's series, which the session start delivers only there."""
+    unique = session or "manual-%d-%s" % (time.time(), os.urandom(4).hex())
+    return load_clients().project_note(layout.state(scope) / "handoff.md", os.path.abspath(cwd), unique)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("action", choices=("plan", "apply", "reset", "status"))
+    parser.add_argument("action", choices=("plan", "apply", "reset", "status", "note-path"))
     parser.add_argument("--answers", type=Path, help="the wizard's answers (plan, apply)")
     parser.add_argument("--extension-dir", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--workspace", type=Path, help="project folder whose .claude/ receives project-scope settings")
@@ -516,6 +568,9 @@ def main():
     parser.add_argument("--stats-db", type=Path, help="mem-stats ledger, for the report allow rule")
     parser.add_argument("--client", choices=CLIENTS, help="touch only this client's files (default: all)")
     parser.add_argument("--json", action="store_true", help="machine-readable output")
+    parser.add_argument("--cwd", type=Path, default=Path.cwd(), help="the restart's working directory (note-path)")
+    parser.add_argument("--session", help="the session restarting, when known (note-path)")
+    parser.add_argument("--scope", choices=SCOPES, default="user", help="the restart hook's scope (note-path)")
     args = parser.parse_args()
     layout = Layout(args)
     if args.action in ("plan", "apply"):
@@ -533,6 +588,9 @@ def main():
             output = {"applied": [c["file"] for c in apply(layout, answers)]}
     elif args.action == "reset":
         output = {"reset": reset(layout)}
+    elif args.action == "note-path":
+        note = posix(note_path(layout, args.scope, args.cwd, args.session))
+        output = {"note": note} if args.json else note
     else:
         output = status(layout)
     sys.stdout.write((output if isinstance(output, str) else json.dumps(output, indent=2, ensure_ascii=False)) + "\n")

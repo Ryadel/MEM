@@ -5,7 +5,7 @@ grown large, or that resumes after the prompt cache expired, costs far more than
 knowledge base. mem-optimize watches the session's size, tells the agent when a restart pays, carries the work into
 the fresh session, and stops the first prompt after a long pause before it rewrites the whole context into the cache.
 
-- **version**: 0.2.0
+- **version**: 0.2.1
 - **provides**: `OPTIMIZE`
 - **subcommands**: `SETUP`, `STATUS`, `RESET`, `PAGES` - closed set
 - **precedence**: base
@@ -17,15 +17,16 @@ the fresh session, and stops the first prompt after a long pause before it rewri
   runs no hooks while openai/codex#33413 is open — check before relying on it there); Factory Droid; Qwen Code;
   OpenCode; Kilo Code (CLI and VS Code extension) — every component in each; see [Clients](#clients) for the
   clients left out and why
-- **customization**: `custom/` holds the setup log, settings backups and, for the project scope, runtime state.
+- **customization**: `custom/` holds the setup log, settings backups and runtime state of the project scope; the
+  user scope's live in `~/.mem/mem-optimize/`, shared by every project.
 
 ## Commands
 
 | Command | What it does |
 |---|---|
 | `MEM OPTIMIZE SETUP` | Runs the setup wizard: asks which components to enable and where, shows the full plan, writes it after one confirmation. Run again to change the answers |
-| `MEM OPTIMIZE STATUS` | Shows what mem-optimize has installed in each settings file: hooks, disabled tools, allow rules. Read-only |
-| `MEM OPTIMIZE RESET` | Removes everything mem-optimize added, and only that. Backups of the settings files stay in `custom/backups/` |
+| `MEM OPTIMIZE STATUS` | Shows what mem-optimize has installed in each settings file: hooks, disabled tools, allow rules; and a shared `handoff.md` left by an earlier version, which is never delivered, so that it can be recovered by hand. Read-only |
+| `MEM OPTIMIZE RESET` | Removes everything mem-optimize added, and only that, whichever project's setup added it. Backups of the settings files stay in `~/.mem/mem-optimize/backups/` (user scope) and `custom/backups/` (project scope) |
 | `MEM OPTIMIZE PAGES` | Lists the knowledge base pages that weigh most on sessions, with a maintenance suggestion for each. Needs mem-stats; read-only: it never edits a page |
 
 ## Components
@@ -167,8 +168,10 @@ python -I -B runner/wizard.py plan --answers <file> --workspace <workspace> --kb
 ```
 
 Show the plan in full — every file, hook command, tool and rule — and ask **one** confirmation. On yes, run the same
-command with `apply`. It backs up each settings file to `custom/backups/<timestamp>/` and records what it added in
-`custom/setup-log.json`. If the client refuses the agent's write to its own settings (Claude Code may treat it as
+command with `apply`. It backs up each settings file and records what it added: for the user scope in
+`~/.mem/mem-optimize/` (`backups/<timestamp>/`, `setup-log.json`), shared by every project, so that setup and reset run
+from any project see what another added; for the project scope in `custom/`. A project log of an earlier version that
+still records user-scope files is merged into the shared one at the next `apply` or `reset`. If the client refuses the agent's write to its own settings (Claude Code may treat it as
 self-modification), say so and ask the user to confirm explicitly; if it is still refused, show the exact JSON from
 `plan --json` and where it goes. Tool changes take effect in a new session: with mem-stats installed, offer to check
 `fixed_overhead` there.
@@ -180,24 +183,45 @@ the middle of a change. Only after the user agrees: update the KB's resume point
 write the handoff note to the path the advisor names (state, decisions made, next step, files to read; under 8,000
 characters); then ask the user to type `/clear` and send any message. Never write the note unasked.
 
-The advisor names a note of the session's own folder (`handoff-<hash of the folder>.md`), so a note is delivered
-only in the project it was written for. A new conversation opened instead of `/clear` (the VS Code new-chat button,
-Codex `/new`: source `startup`) also receives it, but only within 15 minutes of it being written. A held message
-passes the same way only in the folder it was stopped in. `/clear` stays the recommended way. Clients without
-`/clear` restart this way only: OpenCode and Kilo with `/new`, which the advice and the stop message name.
+When the user asks for a restart and no advisor line named a path, get one — never guess it, and never write to
+`handoff.md` itself, which is not delivered:
+
+```text
+python -I -B runner/wizard.py note-path --cwd <the session's working directory> [--scope project]
+```
+
+`--scope project` only when the restart hook is installed for this project alone (`MEM OPTIMIZE STATUS` shows it).
+
+The hooks serve every project, so a note is named after its conversation's folder and session
+(`handoff-<hash of the folder>-<hash of the session>.md`) and is delivered only in that folder; a held message records
+the folder it was stopped in and passes only there, on `/clear` as on a new conversation. A new conversation opened
+instead of `/clear` (the VS Code new-chat button, Codex `/new`: source `startup`) also receives them, but only within
+15 minutes. When several conversations of one folder each left a restart, the fresh session gets a list instead:
+show it, ask the user which one to resume, and act on none until they answer; then read only the chosen file and,
+once used, rename the note or delete the held message as the list says, leaving the others to their conversations.
+A note and a held message are carried over together only when the same conversation left both; otherwise they are
+listed. A carried-over message is acted on at the user's next input unless that input clearly asks for something
+else. The carried-over context stays under 9,800 characters: the held message always arrives whole — inline, or by
+the path of a file to read and then delete (removed after a week otherwise) — and a note that does not fit with it
+arrives by path.
+`/clear` stays the recommended way. Clients without `/clear` restart this way only: OpenCode and Kilo with `/new`,
+which the advice and the stop message name.
+
+Known limit: the key is the exact working directory. A project opened from a subfolder, or from a parent folder, does
+not receive the note written in the other.
 
 ## Files
 
 | Path | Content |
 |---|---|
 | `runner/hook_prompt.py` | Prompt hook (`UserPromptSubmit` and the other clients' equivalents): advisor and long-pause stop |
-| `runner/hook_session.py` | Session-start hook (`clear`, `startup`, `compact`): injects the handoff note, or the held message and its snapshot, or the compaction pointer |
+| `runner/hook_session.py` | Session-start hook (`clear`, `startup`, `compact`): injects this folder's handoff note, or held message and its snapshot, or lists them when several conversations left one; or the compaction pointer |
 | `runner/clients.py` | Each client's payload, usage source and answer format; recognises other clients' payloads |
 | `runner/opencode-plugin.js` | Template of OpenCode's and Kilo's plugin: the wizard fills in the interpreter, runner arguments and database |
-| `runner/wizard.py` | `plan`, `apply`, `reset`, `status` |
+| `runner/wizard.py` | `plan`, `apply`, `reset`, `status`, `note-path` |
 | `runner/pages.py` | `MEM OPTIMIZE PAGES`: heavy pages from a mem-stats report, with suggestions |
-| `custom/setup-log.json`, `custom/backups/` | What setup added, and the settings files as they were |
-| `custom/state/` (project scope) or `~/.mem/mem-optimize/state/` (all projects) | Runtime state: advisor state, held prompt, handoff notes (one per folder), Qwen's recorded usage (`usage-recorded/`, one file per session), logs without content. Self-ignoring `.gitignore`: never committed |
+| `~/.mem/mem-optimize/setup-log.json`, `~/.mem/mem-optimize/backups/` (user scope), `custom/setup-log.json`, `custom/backups/` (project scope) | What setup added, and the settings files as they were |
+| `custom/state/` (project scope) or `~/.mem/mem-optimize/state/` (all projects) | Runtime state, one file per session where sessions could collide: advisor state (`advisor-state/`), held prompts (`held-prompt-<hash>.json`), handoff notes (`handoff-<folder>-<session>.md`), Qwen's recorded usage (`usage-recorded/`); logs without content, with each entry's working directory. A `handoff.md` or `held-prompt.json` without a hash is an earlier version's: the note is never delivered, the held prompt only in its own folder. Self-ignoring `.gitignore`: never committed |
 
 For all projects, setup copies the runners to `~/.mem/mem-optimize/<version>/runner/`, so the hooks do not depend on
 one project's KB.

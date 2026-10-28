@@ -10,20 +10,24 @@ next natural breakpoint, and says it again only when the level rises (advise, th
 advice: the VS Code extension does not show a hook's systemMessage.
 
 With --pause-stop, a prompt sent after the prompt cache has expired, on a context of at least --pause-min tokens, is
-blocked once: sending it would re-write the whole context into the cache. Its text is kept in --held for the
-SessionStart hook to carry into a fresh session after /clear (or a new conversation in the same folder), and the user
+blocked once: sending it would re-write the whole context into the cache. Its text is kept beside --held, one file
+per session (held-prompt-<hash>.json), with the session's working directory, for the SessionStart hook to carry into a
+fresh session in the same folder after /clear (or a new conversation), and the user
 is told, in --lang, how to choose: /clear
 (recommended) or the same message again within --resend-window seconds, which then passes. Since the model is not
 called, no agent can write a handoff note: instead a mechanical snapshot of the last exchanges (the user's prompts,
 the agent's final replies, the files it changed), at most --snapshot-chars long, is kept with the held prompt.
 
-Standard library only; on any error it prints nothing and the prompt goes through unchanged.
+What was told to each session is kept beside --state, one file per session (advisor-state/<hash>.json), so that
+sessions running at once in several projects never rewrite each other's. Standard library only; on any error it
+prints nothing and the prompt goes through unchanged.
 """
 from __future__ import annotations
 
 import argparse
 import importlib.util
 import json
+import os
 import re
 import sys
 import time
@@ -62,6 +66,49 @@ def load_clients():
 
 def action(lang, restart):
     return ACTION[lang].format(command=restart)
+
+
+def state_file(clients, state, session):
+    """One file per session in a folder beside --state (advisor-state/): prompts of sessions running at once, in any
+    project, never read and rewrite one shared file."""
+    return state.with_suffix("") / (clients.digest(session or "", 16) + ".json")
+
+
+def load_state(path, legacy, session):
+    """This session's state; the first time, its entry in the single file written before 0.2.1."""
+    for source, pick in ((path, lambda found: found), (legacy, lambda found: found.get(session))):
+        try:
+            found = pick(json.loads(source.read_text(encoding="utf-8")))
+        except (OSError, ValueError, AttributeError):
+            continue
+        if isinstance(found, dict):
+            return found
+    return {}
+
+
+def drop_legacy(shared, session):
+    """Delete the single held-prompt file of 0.2.0 when the stop it records was this session's: a resend or a new stop
+    here settles it, and it must not be carried over after /clear as well."""
+    try:
+        if json.loads(shared.read_text(encoding="utf-8")).get("session") == session:
+            shared.unlink()
+    except (OSError, ValueError, AttributeError):
+        pass
+
+
+def save_state(path, legacy, mine, now):
+    """Write this session's state atomically, through a temporary file of its own; forget sessions not seen for
+    KEEP, and the pre-0.2.1 file once it is that old."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name("%s.%d.%s.tmp" % (path.stem, os.getpid(), os.urandom(4).hex()))
+    temporary.write_text(json.dumps(mine, sort_keys=True), encoding="utf-8")
+    os.replace(temporary, path)
+    for old in list(path.parent.glob("*.json")) + [legacy]:
+        try:
+            if now - old.stat().st_mtime >= KEEP:
+                old.unlink()
+        except OSError:  # gone already, or another session's hook got there first
+            pass
 
 
 def log(path, entry):
@@ -287,11 +334,13 @@ def main():
     parser.add_argument("--insist", type=int, default=600_000, help="context tokens at which to insist")
     parser.add_argument("--no-advice", action="store_true", help="never advise a restart (pause stop only)")
     parser.add_argument("--handoff", type=Path, help="where the agent writes the handoff note before /clear")
-    parser.add_argument("--state", type=Path, required=True, help="JSON file remembering what was told per session")
+    parser.add_argument("--state", type=Path, required=True,
+                        help="what was told per session: one file per session in the folder of the same name")
     parser.add_argument("--prices", type=Path, help="mem-stats price card, to show API-equivalent costs")
     parser.add_argument("--pause-stop", action="store_true", help="stop the first prompt after the cache expired")
     parser.add_argument("--pause-min", type=int, default=200_000, help="context tokens at which a pause stops a prompt")
-    parser.add_argument("--held", type=Path, help="where a stopped prompt is kept for the SessionStart hook")
+    parser.add_argument("--held", type=Path,
+                        help="where stopped prompts are kept, one per session beside it, for the SessionStart hook")
     parser.add_argument("--resend-window", type=int, default=600, help="seconds within which a resend passes")
     parser.add_argument("--ttl", type=int, default=3600, help="cache lifetime when the transcript does not show it")
     parser.add_argument("--codex-ttl", type=int, default=1800, help="cache lifetime for Codex sessions (OpenAI)")
@@ -316,7 +365,7 @@ def main():
             return
         info = clients.normalized(args.client, event)
         session, transcript = info["session"], info["transcript"]
-        entry.update(session=session, client=args.client)
+        entry.update(session=session, client=args.client, cwd=info["cwd"])
         recorded = args.state.with_name("usage-recorded")  # Qwen Code's Stop hook writes one file per session there
         if event.get("hook_event_name") == "Stop":  # not a prompt: remember the usage, say nothing
             entry["decision"] = "recorded" if clients.record_usage(recorded, event) else "no-usage-in-stop"
@@ -341,14 +390,12 @@ def main():
             return
         usage, model, tokens = record["usage"], record["model"], record["tokens"]
         ttl = record["ttl"] or cache_ttl(usage, args.ttl)
-        try:
-            state = json.loads(args.state.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            state = {}
+        own = state_file(clients, args.state, session)
+        mine = load_state(own, args.state, session)
         now = time.time()
-        state = {k: v for k, v in state.items() if isinstance(v, dict) and now - v.get("seen", 0) < KEEP}
-        mine = state.setdefault(session, {})
         mine["seen"] = now
+        # This session's held prompt: a stop elsewhere never overwrites it, a resend here never deletes another's.
+        held = clients.held_file(args.held, session) if args.held else None
         entry["tokens"] = tokens
         output = None
         at = clients.instant(record.get("at"))
@@ -357,24 +404,26 @@ def main():
             entry["idle_seconds"] = round(idle)
             if now - mine.get("stopped", 0) <= args.resend_window:
                 mine.pop("stopped")  # (B): the user chose to continue here
-                args.held.unlink(missing_ok=True)
+                held.unlink(missing_ok=True)
+                drop_legacy(args.held, session)  # the stop may have been recorded by 0.2.0
                 entry["decision"] = "resent"
             else:
                 card = card_for(model, usage, args.prices)
                 cost = rate_cost(card, "cache_write_1h" if ttl == 3600 else "cache_write", tokens)
                 # cwd: a new conversation (not /clear) takes the prompt only in the same folder
-                held = {"session": session, "at": now, "prompt": info["prompt"], "cwd": info["cwd"]}
+                kept = {"session": session, "at": now, "prompt": info["prompt"], "cwd": info["cwd"]}
                 if args.snapshot_chars > 0:
                     try:
                         found = (clients.opencode_turns(transcript, session)
                                  if args.client in clients.OPENCODE_FAMILY else turns(Path(transcript)))
-                        held["snapshot"] = snapshot(found, args.snapshot_chars)
+                        kept["snapshot"] = snapshot(found, args.snapshot_chars)
                     except Exception as error:  # the held prompt matters more than the snapshot
                         entry["snapshot"] = "error: " + type(error).__name__
                     else:
-                        entry["snapshot"] = len(held["snapshot"])
-                args.held.parent.mkdir(parents=True, exist_ok=True)
-                args.held.write_text(json.dumps(held, ensure_ascii=False), encoding="utf-8")
+                        entry["snapshot"] = len(kept["snapshot"])
+                held.parent.mkdir(parents=True, exist_ok=True)
+                drop_legacy(args.held, session)
+                held.write_text(json.dumps(kept, ensure_ascii=False), encoding="utf-8")
                 mine["stopped"] = now
                 text = STOP[args.lang].format(
                     pause=duration(idle), size=round(tokens / 1000), window=args.resend_window // 60,
@@ -392,16 +441,14 @@ def main():
             entry.update(level=level, told=told)
             if level != "none" and LEVELS.index(level) > LEVELS.index(told):
                 cost = rate_cost(card_for(model, usage, args.prices), "cached_input", tokens)
-                # Each working directory has a note of its own: the session start delivers only this folder's.
-                note = clients.project_note(args.handoff, info["cwd"])
+                # Each conversation has a note of its own, named after its folder: the session start delivers only
+                # this folder's notes.
+                note = clients.project_note(args.handoff, info["cwd"], session)
                 output = clients.prompt_output(args.client, context=advice(level, tokens, cost, note, args.restart))
                 entry["decision"] = "advised"
             else:
                 entry.setdefault("decision", "silent")
-        args.state.parent.mkdir(parents=True, exist_ok=True)
-        temporary = args.state.with_suffix(".tmp")
-        temporary.write_text(json.dumps(state, sort_keys=True), encoding="utf-8")
-        temporary.replace(args.state)
+        save_state(own, args.state, mine, now)
         if output is not None:
             sys.stdout.write(json.dumps(output, ensure_ascii=False))
     except Exception as error:  # never block or alter a prompt by accident
