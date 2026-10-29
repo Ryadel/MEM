@@ -15,6 +15,8 @@
 //                                           written, so text added here would reach the summarizer, not the agent)
 //   experimental.chat.messages.transform -> adds that pointer to the first user message after the compaction (the
 //                                           automatic "continue" or the user's next prompt), in every later request
+//   event session.idle                   -> hook_session.py with a Stop event: a checkpoint of the session's last
+//                                           exchanges, which the next session's first message (/new) can restore
 //
 // Context for the model is appended to the user's message as a synthetic text part, as OpenCode does for files it
 // reads: the request's prefix, and so the prompt cache, is untouched. The compaction pointer is not saved: it is
@@ -136,6 +138,12 @@ export const MemOptimize = async ({ client, directory }) => {
         hook_event_name: "SessionStart", source: "compact", session_id: input.sessionID, cwd: directory,
       })
       if (context(answer)) pointers.set(input.sessionID, { at, text: context(answer), messageID: null, partID: null })
+    },
+    event: async ({ event }) => {
+      // a turn has finished: save the checkpoint the next session (/new) may restore
+      if (!CONFIG?.checkpoint || event?.type !== "session.idle") return
+      const sessionID = event.properties?.sessionID
+      if (sessionID) await run(CONFIG.checkpoint, { hook_event_name: "Stop", session_id: sessionID, cwd: directory })
     },
     "experimental.chat.messages.transform": async (input, output) => {
       const messages = output?.messages

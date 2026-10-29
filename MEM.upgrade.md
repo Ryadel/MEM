@@ -28,8 +28,9 @@ MEM version rather than migrated step by step.
 
 A build release for one extension. `mem-optimize` moves from 0.1.2 to 0.3.0: support for Factory Droid, Qwen Code,
 OpenCode and Kilo Code (0.2.0); restart state isolated per project and per conversation, so that a `/clear` in one
-project never carries over what another left (0.2.1); and, on Claude Code, the last exchanges of a conversation
-restored automatically after every `/clear`, only in the chat that typed it (0.3.0). The core text is unchanged apart
+project never carries over what another left (0.2.1); and the last exchanges of a conversation restored
+automatically after every `/clear` (0.3.0): on Claude Code only in the chat that typed it, on the other clients from
+a checkpoint saved at the end of each turn by the same client process. The core text is unchanged apart
 from the version.
 
 ### Required actions
@@ -54,7 +55,8 @@ from the version.
 
 - `MEM.md` reports version 1.2.3; `extensions/mem-optimize/index.md` reports 0.3.0 and `runner/resume.py` exists.
 - Where the guided restart is enabled for Claude Code, its settings file holds the same `hook_session.py` command
-  under `SessionStart` (matchers `clear`, `startup`) and `SessionEnd`, with `--packages` and `--restore`.
+  under `SessionStart` (matchers `clear`, `startup`) and `SessionEnd`, with `--packages` and `--restore`; for Codex,
+  Droid and Qwen under `SessionStart` and `Stop`; the OpenCode and Kilo plugins handle the `session.idle` event.
 
 ## 1.2.1 -> 1.2.2
 

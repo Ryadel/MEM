@@ -241,6 +241,42 @@ def clip(text, limit):
     return text[:half].rstrip() + " […] " + text[-half:].lstrip()
 
 
+# File-writing tools of other clients (Droid, Qwen): lower-case names, and the keys that hold the path
+OTHER_EDITORS = ("edit", "write", "create", "multiedit", "write_file", "edit_file", "replace")
+PATH_KEYS = ("file_path", "path", "absolute_path", "filePath")
+
+
+def edited(name, given):
+    """The file a tool call changed, or None."""
+    if name in EDITORS:
+        return given.get(EDITORS[name])
+    if isinstance(name, str) and name.lower() in OTHER_EDITORS:
+        return next((given[k] for k in PATH_KEYS if isinstance(given.get(k), str)), None)
+    return None
+
+
+def message_blocks(record):
+    """(role, blocks) of a transcript record in Claude Code's shape and its relatives: Droid wraps messages in
+    {"type": "message", "message": {"role", "content"}}; Qwen Code writes Gemini-style "parts" (text, functionCall;
+    thoughts skipped) with the role "model" for the agent. Blocks are Claude-style dicts; None when it is no message."""
+    message = record.get("message") if isinstance(record.get("message"), dict) else {}
+    role = record.get("type") if record.get("type") in ("user", "assistant") else message.get("role")
+    role = "assistant" if role == "model" else role
+    content = message.get("content")
+    if content is None and isinstance(message.get("parts"), list):
+        content = []
+        for part in message["parts"]:
+            if not isinstance(part, dict) or part.get("thought"):
+                continue
+            if isinstance(part.get("text"), str):
+                content.append({"type": "text", "text": part["text"]})
+            elif isinstance(part.get("functionCall"), dict):
+                call = part["functionCall"]
+                content.append({"type": "tool_use", "name": call.get("name"), "input": call.get("args") or {}})
+    blocks = [{"type": "text", "text": content}] if isinstance(content, str) else content
+    return role, (blocks if isinstance(blocks, list) and role in ("user", "assistant") else None)
+
+
 def turns(path):
     """The main session's recent turns, oldest first: prompt, final reply, files changed."""
     with open(path, "rb") as stream:
@@ -261,24 +297,23 @@ def turns(path):
         if record.get("type") == "response_item":  # Codex
             codex_turn(record.get("payload") or {}, found)
             continue
-        content = (record.get("message") or {}).get("content")
-        blocks = [{"type": "text", "text": content}] if isinstance(content, str) else content
-        if not isinstance(blocks, list):
+        role, blocks = message_blocks(record)
+        if blocks is None:
             continue
-        if record.get("type") == "user" and not record.get("isCompactSummary"):
+        if role == "user" and not record.get("isCompactSummary"):
             # system reminders, IDE selections and slash commands arrive as tagged text: not the user's words
             texts = [b.get("text") or "" for b in blocks if isinstance(b, dict) and b.get("type") == "text"]
             prompt = "\n".join(t for t in texts if t.strip() and not t.lstrip().startswith("<"))
             if prompt.strip():
                 found.append({"prompt": prompt, "reply": "", "files": []})
-        elif record.get("type") == "assistant" and found:
+        elif role == "assistant" and found:
             for block in blocks:
                 if not isinstance(block, dict):
                     continue
                 if block.get("type") == "text" and (block.get("text") or "").strip():
                     found[-1]["reply"] = block["text"]
-                elif block.get("type") == "tool_use" and block.get("name") in EDITORS:
-                    target = (block.get("input") or {}).get(EDITORS[block["name"]])
+                elif block.get("type") == "tool_use":
+                    target = edited(block.get("name"), block.get("input") or {})
                     if target and target not in found[-1]["files"]:
                         found[-1]["files"].append(target)
     return found

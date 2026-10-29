@@ -63,6 +63,7 @@ QUOTED = ("claude", "codex", "droid")  # shells known to read Claude Code's quot
 OPENCODE_FAMILY = ("opencode", "kilo")  # a plugin file instead of settings
 PROJECT_SCOPE = ("claude", "codex")  # the other clients' project files are usually committed: user scope only
 LINKED = ("claude",)  # a SessionEnd at /clear saves the snapshot and links the session that follows
+CHECKPOINT = ("codex", "droid", "qwen", "opencode", "kilo")  # no such event: a checkpoint at the end of each turn
 CLIENT_NAMES = {"claude": "Claude Code", "codex": "Codex", "droid": "Factory Droid", "opencode": "OpenCode",
                 "qwen": "Qwen Code", "kilo": "Kilo Code"}
 COMPONENTS = ("advisor", "restart", "pause_stop", "compaction")
@@ -71,9 +72,11 @@ RESTART = {"opencode": "/new", "kilo": "/new"}
 LABELS = {
     "claude": {"UserPromptSubmit": "UserPromptSubmit", "SessionStart": "SessionStart (clear, startup)",
                "SessionStartCompact": "SessionStart (compact)",
-               "SessionEnd": "SessionEnd (at /clear: saves the snapshot of the last exchanges)"},
+               "SessionEnd": "SessionEnd (at /clear: saves the snapshot of the last exchanges)",
+               "Stop": "Stop (end of each turn: a checkpoint of the last exchanges; Qwen: also its usage record)"},
     "opencode": {"UserPromptSubmit": "chat.message", "SessionStart": "chat.message, first of a session",
-                 "SessionStartCompact": "experimental.session.compacting, then the next user message"},
+                 "SessionStartCompact": "experimental.session.compacting, then the next user message",
+                 "Stop": "event session.idle (a checkpoint of the last exchanges)"},
 }
 LABELS["kilo"] = LABELS["opencode"]
 NOTES = {
@@ -231,14 +234,14 @@ def wanted(answers, layout, client="claude"):
         # answer, auto when the guided restart is on). Its SessionEnd hook also links a /clear to its conversation.
         clear = answers.get("clear_restore") or {}
         mode = clear.get("mode") or ("auto" if restart.get("enabled") else "off")
-        restoring = client in LINKED and mode != "off" and clear.get("scope", "user") == scope
+        restoring = client in LINKED + CHECKPOINT and mode != "off" and clear.get("scope", "user") == scope
         if handoff or stop or restoring:
             options = []
             if handoff:
                 options += ["--handoff", state / "handoff.md"]
             if stop:
                 options += ["--held", state / "held-prompt.json"]
-            if client in LINKED:
+            if client in LINKED + CHECKPOINT:
                 options += ["--packages", state / "packages", "--restore", mode]
             if scope == "project" and layout.kb_root is not None:
                 options += ["--kb-root", Path(layout.kb_root)]
@@ -247,6 +250,8 @@ def wanted(answers, layout, client="claude"):
             result[scope]["SessionStart"].append(line)
             if client in LINKED:
                 result[scope]["SessionEnd"].append(line)
+            elif client in CHECKPOINT:  # the same command at the end of each turn saves the checkpoint
+                result[scope]["Stop"].append(line)
         if compaction.get("enabled") and compaction.get("scope", "user") == scope:
             options = ["--compact"]
             if scope == "project" and layout.kb_root is not None:
@@ -353,7 +358,9 @@ def plugin(layout, want, client="opencode"):
     config = {"python": posix(layout.python), "db": posix(layout.database(client)), "data": posix(layout.data(client)),
               "dbEnv": client.upper() + "_DB",
               "prompt": (want["UserPromptSubmit"] or [None])[0], "session": (want["SessionStart"] or [None])[0],
-              "compact": (want["SessionStartCompact"] or [None])[0]}
+              "compact": (want["SessionStartCompact"] or [None])[0],
+              "checkpoint": next((line for line in want["Stop"] if "hook_session.py" in " ".join(map(str, line))),
+                                 None)}
     template = (layout.extension / "runner" / "opencode-plugin.js").read_text(encoding="utf-8")
     text = template.replace("/* CONFIG */ null", json.dumps(config, indent=2))
     if client == "kilo":
@@ -464,7 +471,7 @@ def describe(changes, copies, wants):
         client = change["client"]
         lines.append("%s, %s scope: %s" % (CLIENT_NAMES[client], change["scope"], change["file"]))
         mine, labels = change["want"], LABELS.get(client, LABELS["claude"])
-        for event in ("UserPromptSubmit", "SessionStart", "SessionStartCompact", "SessionEnd"):
+        for event in ("UserPromptSubmit", "SessionStart", "SessionStartCompact", "SessionEnd", "Stop"):
             for line in mine[event]:
                 shown = " ".join(line) if isinstance(line, list) else line
                 lines.append("  hook %s: %s" % (labels[event], shown))

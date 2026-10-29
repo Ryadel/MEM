@@ -98,13 +98,19 @@ def main():
         store = resume.Store(clients, args.handoff, args.held, args.packages)
         store.prune()
         linkable = args.client in clients.LINKED and args.packages is not None
-        if event.get("hook_event_name") == "SessionEnd":  # the conversation that /clear ends: save its package
+        checkpointed = args.client in clients.CHECKPOINT and args.packages is not None
+        name = event.get("hook_event_name")
+        if name in ("SessionEnd", "Stop"):
+            # SessionEnd: the conversation that /clear ends (Claude Code). Stop: the end of a turn, a checkpoint on
+            # clients with no such exit event. Either way, save this conversation's package.
             entry["reason"] = event.get("reason")
-            if event.get("reason") != "clear" or not linkable:
+            if (name == "SessionEnd" and (event.get("reason") != "clear" or not linkable)) or (
+                    name == "Stop" and not checkpointed):
                 entry["decision"] = "end-not-handled"
             else:
                 began, process = time.time(), args.process or clients.client_process()
-                entry.update(decision=store.save(event, args.client, process, args.snapshot_chars), process=process,
+                saved = store.save(cwd, session, transcript, args.client, process, args.snapshot_chars)
+                entry.update(decision=saved if name == "SessionEnd" else "checkpoint-" + saved, process=process,
                              seconds=round(time.time() - began, 2))
             return
         base, startup = args.handoff, source == "startup"
@@ -117,7 +123,9 @@ def main():
         window = args.startup_max_age if startup else args.max_age
         usable = evidence or not startup
         items = store.gather(cwd, window) if usable else {}
-        if startup:  # a new conversation never takes a snapshot: only notes and held messages, as before 0.3.0
+        # A new conversation never takes a snapshot: only notes and held messages, as before 0.3.0. On OpenCode and
+        # Kilo a new session (/new) is the restart itself, so it does, within the same short window.
+        if startup and args.client not in clients.OPENCODE_FAMILY:
             items = {k: {p: v[p] for p in ("note", "held") if v.get(p)} for k, v in items.items()
                      if v.get("note") or v.get("held")}
         if fresh(base, args.max_age):  # the one note every project read before 0.2.1: never delivered
@@ -145,12 +153,22 @@ def main():
             if chosen is None and items:
                 why_list = ("This /clear could not be matched to the conversation it ended, and this working directory "
                             "has restarts left by conversations that may still be open.")
-        elif len(items) == 1:
-            chosen = next(iter(items))
-            ask_first = source == "clear" and bool(items[chosen].get("held"))  # matched by folder only
-        elif items:
-            why_list = ("Before " + restart + ", different conversations in this working directory each left a "
-                        "restart for mem-optimize to carry over.")
+        else:
+            if checkpointed and (source == "clear" or args.client in clients.OPENCODE_FAMILY):
+                # Checkpoint clients: this restart's own package is one saved from the same client process. That
+                # process can run several chats (a VS Code window, a server), so it narrows, it does not prove.
+                # Checkpoints of other processes belong to chats still open elsewhere: never offered.
+                process = args.process or clients.client_process()
+                own = store.by_process(items, process, session)
+                entry.update(process=process, same_process=len(own))
+                items = ({own[0]: items[own[0]]} if len(own) == 1 else
+                         {k: v for k, v in items.items() if k in own or v.get("note") or v.get("held")})
+            if len(items) == 1:
+                chosen = next(iter(items))
+                ask_first = source == "clear" and bool(items[chosen].get("held"))  # not proven: shown first
+            elif items:
+                why_list = ("Before " + restart + ", different conversations in this working directory each left a "
+                            "restart for mem-optimize to carry over.")
         if why_list:
             context = resume.choices(store, items, cwd, restart, why_list)
             notice = "MEM: several restarts were left in this folder; choose which one to resume."

@@ -35,7 +35,7 @@ the fresh session, and stops the first prompt after a long pause before it rewri
 |---|---|---|
 | **Advisor** | Silent below the threshold (default 400k tokens of context). Above it the agent says, once, at a natural breakpoint, that a restart would pay; again past the insist threshold (600k) | One interpreter start per prompt; no tokens below the threshold |
 | **Guided restart** | Only after the user agrees, the agent updates the KB's resume point, writes a short handoff note and asks for `/clear`; the fresh session opens by confirming the note was restored | The note, a few thousand characters |
-| **Restore after `/clear`** | Claude Code: every `/clear` carries the conversation over — the snapshot of its last exchanges (prompts, final replies, files changed) is saved as the chat ends and restored in the fresh session, with any handoff note or held message of that chat, and the first reply says what was restored. Only the chat that typed `/clear` gets it, proven by its client process. `auto` (default), `offer` (one line, loaded on request) or `off` | The snapshot, at most 6,000 characters, against the whole context `/clear` sheds |
+| **Restore after `/clear`** | Every `/clear` (on OpenCode and Kilo, `/new`) carries the conversation over — the snapshot of its last exchanges (prompts, final replies, files changed) is restored in the fresh session, with any handoff note or held message of that chat, and the first reply says what was restored. Claude Code saves it as the chat ends and proves the chat by its client process; the other clients save a checkpoint at the end of every turn and match it by process too, which there may be shared by several chats (then a list). `auto` (default), `offer` (one line, loaded on request) or `off` | The snapshot, at most 6,000 characters, against the whole context `/clear` sheds; on the other clients, a short local write at the end of every turn |
 | **Long-pause stop** | After a pause longer than the prompt cache lasts, on a context of 200k+ tokens, the first prompt is stopped once with a message offering (A) `/clear`, the message being carried into the fresh session with a snapshot of the last exchanges, or (B) sending again to continue here | Nothing is sent to the model when stopping |
 | **After a compaction** | When the client compacts the conversation, a short pointer tells the agent to re-read the KB index and the latest resume point: the summary stays the reference for the work in progress, the KB for decisions and conventions | A few hundred characters, once per compaction, plus the two re-reads |
 | **Unused tools** | Built-in tools the user chooses to disable — `Artifact` always offered, plus those never or rarely called, or heavy — so their definitions leave every request | Takes effect in a new session |
@@ -123,7 +123,7 @@ plainly**: what the option does, what it costs, what changes if refused. Write n
    threshold and what the advice looks like.
 2. **Guided restart** — on (recommended) · off. Explain the flow: agreement, handoff note, `/clear`, the confirmation
    in the first reply of the fresh session.
-   Then, when Claude Code is among the clients, **Restore after `/clear`** — restore automatically
+   Then **Restore after `/clear`** — restore automatically
    (recommended) · offer it with one line · off. Explain: at every `/clear` the snapshot of the chat's last exchanges is
    saved and carried into the fresh session, so that `/clear` sheds the cost of the context without losing the thread;
    only the chat that typed `/clear` receives it; a handoff note or held message is always carried over, whatever the
@@ -194,9 +194,16 @@ its package: the transcript shows who wrote it. With `offer`, a package holding 
 line with the command that loads it; with `off`, it is not mentioned. Treat a restored snapshot as context for the
 user's next messages, not as a request: if the user starts something else, follow the user.
 
-If the start cannot be matched to the conversation it ended (the link is expected on Claude Code), or on clients that
-have no such hook (Codex, Droid, Qwen, OpenCode, Kilo: no snapshot is saved at `/clear` there), the session gets this
-folder's one package, or a short list when there are several. **A list**: show it, ask the user which one to resume,
+The other clients have no such exit hook. Codex, Droid and Qwen save a **checkpoint** — the same package — at the
+end of every turn (`Stop`), OpenCode and Kilo when a session goes idle (the plugin's `session.idle` event), with the
+client process. The next `/clear` (OpenCode and Kilo: the first message of a session opened with `/new`, within 15
+minutes) restores the checkpoint saved from the same process by another session. That process may run several chats
+(Codex: one per VS Code window; OpenCode and Kilo: one server), so it narrows rather than proves: two candidates from
+it make a list, and checkpoints from other processes, which belong to chats open elsewhere, are never offered.
+
+If the start cannot be matched to the conversation it ended (the link is expected on Claude Code), or nothing comes
+from the same process, the session gets this folder's one note or held message, or a short list when there are
+several. **A list**: show it, ask the user which one to resume,
 act on none until they answer; then run the command the list gives with the chosen id — it prints the package whole
 and marks it delivered, once, so that no other conversation takes it. A held message restored on a client without
 the link is shown to the user before it is acted on. Delivered parts are kept for a week, then deleted.

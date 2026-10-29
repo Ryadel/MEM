@@ -164,16 +164,19 @@ class Store:
             except OSError:
                 pass
 
-    def save(self, event, client, process, snapshot_chars=6000, now=None):
-        """At a /clear's SessionEnd: the snapshot of the conversation's last exchanges, its client process, and the
-        handoff note it wrote, if any, adopted under its session's name. Returns what was saved."""
-        clients, cwd, session = self.clients, event.get("cwd"), event.get("session_id")
-        transcript = event.get("transcript_path")
+    def save(self, cwd, session, transcript, client, process, snapshot_chars=6000, now=None):
+        """At a /clear's SessionEnd (Claude Code), or at the end of a turn on the other clients: the snapshot of the
+        conversation's last exchanges, its client process, and (Claude Code) the handoff note it wrote, adopted under
+        its session's name. Returns what was saved."""
+        clients = self.clients
         if not cwd or not session or self.packages is None:
             return "no-session"
         prompt = load("hook_prompt")
-        found = prompt.turns(Path(transcript)) if transcript and Path(transcript).is_file() else []
-        adopted = self.adopt(cwd, session, transcript)
+        if client in clients.OPENCODE_FAMILY:  # the session lives in the client's database
+            found = clients.opencode_turns(transcript, session) if transcript else []
+        else:
+            found = prompt.turns(Path(transcript)) if transcript and Path(transcript).is_file() else []
+        adopted = self.adopt(cwd, session, transcript) if client in clients.LINKED else False
         record = {"session": session, "cwd": cwd, "client": client, "process": process, "ended": now or time.time(),
                   "snapshot": prompt.snapshot(found, snapshot_chars) if snapshot_chars > 0 else ""}
         target = self.package(cwd, session)
@@ -208,6 +211,12 @@ class Store:
                 os.replace(path, target)
             return target.exists()
         return False
+
+    def by_process(self, items, process, session):
+        """The keys of this folder's packages saved from the same client process by another session (checkpoint
+        clients: a window's or a server's process may run several chats)."""
+        return [key for key, item in items.items() if item.get("package")
+                and read(item["package"]).get("process") == process and read(item["package"]).get("session") != session]
 
     def linked(self, process, window, now=None):
         """The package this /clear continues: ended moments ago in the same client process, whatever folder it was

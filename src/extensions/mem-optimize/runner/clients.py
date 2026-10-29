@@ -29,6 +29,9 @@ CLIENTS = CLAUDE_STYLE + OPENCODE_FAMILY
 # Clients whose /clear can be linked to the session it ended: Claude Code runs a SessionEnd hook (reason clear) and
 # then SessionStart (source clear) from the same client process, one per chat (measured 2026-10-29).
 LINKED = ("claude",)
+# Clients with no such exit event: a checkpoint at the end of every turn (Stop; OpenCode and Kilo: session idle) saves
+# the snapshot with the client process, which is shared by the chats of one window or server, not one per chat.
+CHECKPOINT = ("codex", "droid", "qwen", "opencode", "kilo")
 # Processes between a hook and its client: the shells it runs through and the interpreter launchers.
 INTERMEDIATE = ("bash", "sh", "dash", "zsh", "fish", "ksh", "cmd", "powershell", "pwsh", "conhost", "env", "py",
                 "python", "pythonw")

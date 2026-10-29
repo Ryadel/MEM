@@ -8,13 +8,16 @@ MEM uses `MAJOR.MINOR.BUILD` versioning. Version-to-version migration steps are 
 
 ### Changed
 
-- **`mem-optimize` 0.3.0**: on Claude Code, every `/clear` carries the conversation over. The hook that ends the
+- **`mem-optimize` 0.3.0**: every `/clear` carries the conversation over. On Claude Code: The hook that ends the
   conversation (SessionEnd, reason `clear`) saves the snapshot of its last exchanges with the client process the chat
   runs in; the hook that starts the fresh session, from the same process under a second later, restores it with the
   chat's handoff note and held message, and never another chat's, even in the same folder. `auto` (default), `offer`
   or `off`; a note the conversation wrote under another name joins its package. When a start cannot be matched, or
   on clients without that hook, several packages are listed and the agent loads the chosen one with
-  `runner/resume.py claim <id>`, once. A new conversation never receives a snapshot.
+  `runner/resume.py claim <id>`, once. A new conversation never receives a snapshot. Codex, Droid and Qwen save the
+  same package as a checkpoint at the end of every turn (`Stop`), OpenCode and Kilo when a session goes idle, and
+  their next `/clear` (`/new`) restores the one from the same client process; several from it are listed. Droid's
+  and Qwen's transcripts are now read for the snapshot too.
 - **`mem-optimize` 0.2.1**: the user-scope hooks serve every project, and their restart state was shared: a `/clear`
   in one project could carry over a prompt held in another. Held prompts, handoff notes and advisor state are now one
   file per session and delivered only in their own folder; the shared `handoff.md` is never delivered
