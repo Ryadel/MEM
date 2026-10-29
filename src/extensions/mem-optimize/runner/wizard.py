@@ -35,6 +35,7 @@ Answers (JSON):
    "restart": {"enabled": true, "scope": "user"},
    "pause_stop": {"enabled": true, "scope": "user"},
    "compaction": {"enabled": true, "scope": "user"},
+   "clear_restore": {"mode": "auto" | "offer" | "off", "scope": "user"},
    "deny_tools": [{"tool": "Artifact", "scope": "user"}],
    "report_permissions": {"enabled": true, "scope": "user"}}
 
@@ -52,7 +53,7 @@ import sys
 import time
 from pathlib import Path
 
-RUNNERS = ("hook_prompt.py", "hook_session.py", "clients.py", "wizard.py", "opencode-plugin.js")
+RUNNERS = ("hook_prompt.py", "hook_session.py", "clients.py", "resume.py", "wizard.py", "opencode-plugin.js")
 # Earlier runner names too, so that apply replaces hooks installed before the rename.
 MARK = re.compile(r"mem-optimize.*/(hook_prompt|hook_session|claude_advisor|claude_session)\.py")
 SCOPES = ("user", "project")
@@ -61,6 +62,7 @@ CLAUDE_STYLE = ("claude", "codex", "droid", "qwen")  # Claude Code's settings fo
 QUOTED = ("claude", "codex", "droid")  # shells known to read Claude Code's quoted command lines
 OPENCODE_FAMILY = ("opencode", "kilo")  # a plugin file instead of settings
 PROJECT_SCOPE = ("claude", "codex")  # the other clients' project files are usually committed: user scope only
+LINKED = ("claude",)  # a SessionEnd at /clear saves the snapshot and links the session that follows
 CLIENT_NAMES = {"claude": "Claude Code", "codex": "Codex", "droid": "Factory Droid", "opencode": "OpenCode",
                 "qwen": "Qwen Code", "kilo": "Kilo Code"}
 COMPONENTS = ("advisor", "restart", "pause_stop", "compaction")
@@ -68,7 +70,8 @@ COMPONENTS = ("advisor", "restart", "pause_stop", "compaction")
 RESTART = {"opencode": "/new", "kilo": "/new"}
 LABELS = {
     "claude": {"UserPromptSubmit": "UserPromptSubmit", "SessionStart": "SessionStart (clear, startup)",
-               "SessionStartCompact": "SessionStart (compact)"},
+               "SessionStartCompact": "SessionStart (compact)",
+               "SessionEnd": "SessionEnd (at /clear: saves the snapshot of the last exchanges)"},
     "opencode": {"UserPromptSubmit": "chat.message", "SessionStart": "chat.message, first of a session",
                  "SessionStartCompact": "experimental.session.compacting, then the next user message"},
 }
@@ -92,7 +95,8 @@ def quoted(path):
 
 
 def empty():
-    return {"UserPromptSubmit": [], "SessionStart": [], "SessionStartCompact": [], "Stop": [], "deny": [], "allow": []}
+    return {"UserPromptSubmit": [], "SessionStart": [], "SessionStartCompact": [], "SessionEnd": [], "Stop": [],
+            "deny": [], "allow": []}
 
 
 class Layout:
@@ -221,16 +225,26 @@ def wanted(answers, layout, client="claude"):
             if client == "qwen":  # Qwen's Stop hook carries the request's input tokens: recorded for the prompt hook
                 options = ["--state", state / "advisor-state.json", "--log", state / "hook-prompt.jsonl"] + named
                 result[scope]["Stop"].append(render(layout, scope, "hook_prompt.py", client, options))
-        if handoff or stop:
+        # Claude Code: the snapshot of the last exchanges restored after every /clear (auto, offer or off; without an
+        # answer, auto when the guided restart is on). Its SessionEnd hook also links a /clear to its conversation.
+        clear = answers.get("clear_restore") or {}
+        mode = clear.get("mode") or ("auto" if restart.get("enabled") else "off")
+        restoring = client in LINKED and mode != "off" and clear.get("scope", "user") == scope
+        if handoff or stop or restoring:
             options = []
             if handoff:
                 options += ["--handoff", state / "handoff.md"]
             if stop:
                 options += ["--held", state / "held-prompt.json"]
+            if client in LINKED:
+                options += ["--packages", state / "packages", "--restore", mode]
             if scope == "project" and layout.kb_root is not None:
                 options += ["--kb-root", Path(layout.kb_root)]
             options += ["--log", state / "hook-session.jsonl"] + named
-            result[scope]["SessionStart"].append(render(layout, scope, "hook_session.py", client, options))
+            line = render(layout, scope, "hook_session.py", client, options)
+            result[scope]["SessionStart"].append(line)
+            if client in LINKED:
+                result[scope]["SessionEnd"].append(line)
         if compaction.get("enabled") and compaction.get("scope", "user") == scope:
             options = ["--compact"]
             if scope == "project" and layout.kb_root is not None:
@@ -313,7 +327,8 @@ def merged(settings, want, recorded):
     # The restart hook runs on /clear and on a new conversation (startup); it decides itself whether a note is ours.
     for key, event, matcher in (("UserPromptSubmit", "UserPromptSubmit", None), ("SessionStart", "SessionStart", "clear"),
                                 ("SessionStart", "SessionStart", "startup"),
-                                ("SessionStartCompact", "SessionStart", "compact"), ("Stop", "Stop", None)):
+                                ("SessionStartCompact", "SessionStart", "compact"), ("SessionEnd", "SessionEnd", None),
+                                ("Stop", "Stop", None)):
         for line in want[key]:
             group = {"hooks": [{"type": "command", "command": line}]}
             if matcher:
@@ -447,7 +462,7 @@ def describe(changes, copies, wants):
         client = change["client"]
         lines.append("%s, %s scope: %s" % (CLIENT_NAMES[client], change["scope"], change["file"]))
         mine, labels = change["want"], LABELS.get(client, LABELS["claude"])
-        for event in ("UserPromptSubmit", "SessionStart", "SessionStartCompact"):
+        for event in ("UserPromptSubmit", "SessionStart", "SessionStartCompact", "SessionEnd"):
             for line in mine[event]:
                 shown = " ".join(line) if isinstance(line, list) else line
                 lines.append("  hook %s: %s" % (labels[event], shown))

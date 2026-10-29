@@ -17,6 +17,7 @@ import hashlib
 import json
 import os
 import sqlite3
+import subprocess
 from contextlib import closing
 from datetime import datetime
 from pathlib import Path
@@ -25,6 +26,12 @@ from urllib.parse import quote
 CLAUDE_STYLE = ("claude", "codex", "droid", "qwen")
 OPENCODE_FAMILY = ("opencode", "kilo")  # plugins, sessions in SQLite
 CLIENTS = CLAUDE_STYLE + OPENCODE_FAMILY
+# Clients whose /clear can be linked to the session it ended: Claude Code runs a SessionEnd hook (reason clear) and
+# then SessionStart (source clear) from the same client process, one per chat (measured 2026-10-29).
+LINKED = ("claude",)
+# Processes between a hook and its client: the shells it runs through and the interpreter launchers.
+INTERMEDIATE = ("bash", "sh", "dash", "zsh", "fish", "ksh", "cmd", "powershell", "pwsh", "conhost", "env", "py",
+                "python", "pythonw")
 # Keys only other clients send: Cursor, Antigravity, GitHub Copilot (camelCase or VS Code-compatible formats). Cursor
 # and Antigravity are not supported (they cannot carry both the advice and the stop message), but Cursor runs Claude
 # Code's hooks.
@@ -124,6 +131,67 @@ def held_files(base):
         return []
     return sorted(p for p in base.parent.glob(base.stem + "*" + base.suffix) if ".consumed-" not in p.name
                   and (p == base or p.stem[len(base.stem):len(base.stem) + 1] == "-"))
+
+
+def parents(depth=12):
+    """[(pid, name)] from this process's parent upwards, names lower-case without .exe; [] when unknown."""
+    table = {}
+    if os.name == "nt":
+        import ctypes
+        from ctypes import wintypes
+
+        class Entry(ctypes.Structure):
+            _fields_ = [("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD), ("th32ProcessID", wintypes.DWORD),
+                        ("th32DefaultHeapID", ctypes.c_size_t), ("th32ModuleID", wintypes.DWORD),
+                        ("cntThreads", wintypes.DWORD), ("th32ParentProcessID", wintypes.DWORD),
+                        ("pcPriClassBase", ctypes.c_long), ("dwFlags", wintypes.DWORD),
+                        ("szExeFile", ctypes.c_wchar * 260)]
+
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+        snapshot = kernel.CreateToolhelp32Snapshot(0x2, 0)  # TH32CS_SNAPPROCESS
+        if snapshot in (None, wintypes.HANDLE(-1).value):
+            return []
+        entry = Entry()
+        entry.dwSize = ctypes.sizeof(Entry)
+        try:
+            found = kernel.Process32FirstW(snapshot, ctypes.byref(entry))
+            while found:
+                table[entry.th32ProcessID] = (entry.th32ParentProcessID, entry.szExeFile)
+                found = kernel.Process32NextW(snapshot, ctypes.byref(entry))
+        finally:
+            kernel.CloseHandle(snapshot)
+    chain, pid = [], os.getppid()
+    while pid > 1 and len(chain) < depth:
+        if os.name == "nt":
+            if pid not in table:
+                break
+            parent, name = table[pid]
+        else:
+            try:  # Linux: "pid (name) state ppid ..."
+                stat = Path("/proc/%d/stat" % pid).read_text()
+                name, parent = stat[stat.index("(") + 1:stat.rindex(")")], int(stat[stat.rindex(")") + 2:].split()[1])
+            except (OSError, ValueError, IndexError):
+                try:  # macOS and other systems without /proc
+                    out = subprocess.run(["ps", "-o", "ppid=,comm=", "-p", str(pid)], capture_output=True,
+                                         text=True, timeout=5).stdout.strip().split(None, 1)
+                    parent, name = int(out[0]), os.path.basename(out[1])
+                except (OSError, ValueError, IndexError, subprocess.SubprocessError):
+                    break
+        name = name.lower()
+        chain.append((pid, name[:-4] if name.endswith(".exe") else name))
+        pid = parent
+    return chain
+
+
+def client_process():
+    """The client process running this hook, as "<pid>:<name>": the first ancestor that is not a shell or an
+    interpreter launcher. Two hooks of one Claude Code chat share it; another chat has its own. None when unknown."""
+    for pid, name in parents():
+        base = name.rstrip("0123456789.")
+        if base not in INTERMEDIATE and not base.startswith("python"):
+            return "%d:%s" % (pid, name)
+    return None
 
 
 def instant(value):

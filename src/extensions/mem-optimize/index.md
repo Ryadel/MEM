@@ -5,7 +5,7 @@ grown large, or that resumes after the prompt cache expired, costs far more than
 knowledge base. mem-optimize watches the session's size, tells the agent when a restart pays, carries the work into
 the fresh session, and stops the first prompt after a long pause before it rewrites the whole context into the cache.
 
-- **version**: 0.2.1
+- **version**: 0.3.0
 - **provides**: `OPTIMIZE`
 - **subcommands**: `SETUP`, `STATUS`, `RESET`, `PAGES` - closed set
 - **precedence**: base
@@ -35,6 +35,7 @@ the fresh session, and stops the first prompt after a long pause before it rewri
 |---|---|---|
 | **Advisor** | Silent below the threshold (default 400k tokens of context). Above it the agent says, once, at a natural breakpoint, that a restart would pay; again past the insist threshold (600k) | One interpreter start per prompt; no tokens below the threshold |
 | **Guided restart** | Only after the user agrees, the agent updates the KB's resume point, writes a short handoff note and asks for `/clear`; the fresh session opens by confirming the note was restored | The note, a few thousand characters |
+| **Restore after `/clear`** | Claude Code: every `/clear` carries the conversation over — the snapshot of its last exchanges (prompts, final replies, files changed) is saved as the chat ends and restored in the fresh session, with any handoff note or held message of that chat, and the first reply says what was restored. Only the chat that typed `/clear` gets it, proven by its client process. `auto` (default), `offer` (one line, loaded on request) or `off` | The snapshot, at most 6,000 characters, against the whole context `/clear` sheds |
 | **Long-pause stop** | After a pause longer than the prompt cache lasts, on a context of 200k+ tokens, the first prompt is stopped once with a message offering (A) `/clear`, the message being carried into the fresh session with a snapshot of the last exchanges, or (B) sending again to continue here | Nothing is sent to the model when stopping |
 | **After a compaction** | When the client compacts the conversation, a short pointer tells the agent to re-read the KB index and the latest resume point: the summary stays the reference for the work in progress, the KB for decisions and conventions | A few hundred characters, once per compaction, plus the two re-reads |
 | **Unused tools** | Built-in tools the user chooses to disable — `Artifact` always offered, plus those never or rarely called, or heavy — so their definitions leave every request | Takes effect in a new session |
@@ -122,6 +123,11 @@ plainly**: what the option does, what it costs, what changes if refused. Write n
    threshold and what the advice looks like.
 2. **Guided restart** — on (recommended) · off. Explain the flow: agreement, handoff note, `/clear`, the confirmation
    in the first reply of the fresh session.
+   Then, when Claude Code is among the clients, **Restore after `/clear`** — restore automatically
+   (recommended) · offer it with one line · off. Explain: at every `/clear` the snapshot of the chat's last exchanges is
+   saved and carried into the fresh session, so that `/clear` sheds the cost of the context without losing the thread;
+   only the chat that typed `/clear` receives it; a handoff note or held message is always carried over, whatever the
+   answer. Answer key `clear_restore` (`mode`, `scope`).
 3. **After a long pause** — stop the first prompt and propose `/clear` with the message carried over
    (recommended) · nothing. Explain that the stopped message is not lost, and that sending again continues here.
 4. **Unused tools** (multi-select) — the tools the user may disable. Without mem-stats, offer `Artifact` alone. With
@@ -142,7 +148,8 @@ plainly**: what the option does, what it costs, what changes if refused. Write n
    typed answer; it excludes the others. When the client's question tool caps the options per question (four in
    `AskUserQuestion`), split the tools over several questions, heaviest first, each keeping room for that option
    ("none of these").
-5. **Scope, one question per enabled element** (advisor, restart, stop, each tool, report permissions) — all projects
+5. **Scope, one question per enabled element** (advisor, restart, restore after `/clear`, stop, each tool, report
+   permissions) — all projects
    (recommended) · only this project. All projects writes the user settings; only this project writes
    `<workspace>/.claude/settings.local.json`.
 6. **Costs in the advice** — tokens plus the API-equivalent cost, labelled as such (recommended, needs mem-stats'
@@ -176,6 +183,24 @@ self-modification), say so and ask the user to confirm explicitly; if it is stil
 `plan --json` and where it goes. Tool changes take effect in a new session: with mem-stats installed, offer to check
 `fixed_overhead` there.
 
+## Restore after `/clear`
+
+On Claude Code, the hook that ends a conversation at `/clear` (`SessionEnd`, reason `clear`) saves a **resume
+package**: the snapshot of its last exchanges, with the client process the chat runs in. The hook that starts the
+fresh session (`SessionStart`, source `clear`) runs from the same process under a second later, so it restores that
+package — with the handoff note and the held message of the same conversation — and never another chat's, even in
+the same folder. A handoff note the conversation wrote under another name (from `note-path`, or a guessed path) joins
+its package: the transcript shows who wrote it. With `offer`, a package holding only the snapshot is announced in one
+line with the command that loads it; with `off`, it is not mentioned. Treat a restored snapshot as context for the
+user's next messages, not as a request: if the user starts something else, follow the user.
+
+If the start cannot be matched to the conversation it ended (the link is expected on Claude Code), or on clients that
+have no such hook (Codex, Droid, Qwen, OpenCode, Kilo: no snapshot is saved at `/clear` there), the session gets this
+folder's one package, or a short list when there are several. **A list**: show it, ask the user which one to resume,
+act on none until they answer; then run the command the list gives with the chosen id — it prints the package whole
+and marks it delivered, once, so that no other conversation takes it. A held message restored on a client without
+the link is shown to the user before it is acted on. Delivered parts are kept for a week, then deleted.
+
 ## Guided restart (agent procedure)
 
 When the advisor's context line asks for it, propose the restart **in one short line**, at a breakpoint — never in
@@ -196,14 +221,11 @@ The hooks serve every project, so a note is named after its conversation's folde
 (`handoff-<hash of the folder>-<hash of the session>.md`) and is delivered only in that folder; a held message records
 the folder it was stopped in and passes only there, on `/clear` as on a new conversation. A new conversation opened
 instead of `/clear` (the VS Code new-chat button, Codex `/new`: source `startup`) also receives them, but only within
-15 minutes. When several conversations of one folder each left a restart, the fresh session gets a list instead:
-show it, ask the user which one to resume, and act on none until they answer; then read only the chosen file and,
-once used, rename the note or delete the held message as the list says, leaving the others to their conversations.
-A note and a held message are carried over together only when the same conversation left both; otherwise they are
-listed. A carried-over message is acted on at the user's next input unless that input clearly asks for something
+15 minutes, never a snapshot. When several conversations of one folder each left a restart and the start cannot be
+matched to one, the fresh session gets a list (see [Restore after `/clear`](#restore-after-clear)). A note and a held
+message are carried over together only when the same conversation left both. A carried-over message is acted on at the user's next input unless that input clearly asks for something
 else. The carried-over context stays under 9,800 characters: the held message always arrives whole — inline, or by
-the path of a file to read and then delete (removed after a week otherwise) — and a note that does not fit with it
-arrives by path.
+the path of a file to read — then the note, inline or by path, then the snapshot in the room left.
 `/clear` stays the recommended way. Clients without `/clear` restart this way only: OpenCode and Kilo with `/new`,
 which the advice and the stop message name.
 
@@ -215,13 +237,14 @@ not receive the note written in the other.
 | Path | Content |
 |---|---|
 | `runner/hook_prompt.py` | Prompt hook (`UserPromptSubmit` and the other clients' equivalents): advisor and long-pause stop |
-| `runner/hook_session.py` | Session-start hook (`clear`, `startup`, `compact`): injects this folder's handoff note, or held message and its snapshot, or lists them when several conversations left one; or the compaction pointer |
+| `runner/hook_session.py` | Session hooks: at a `/clear`'s end (Claude Code) saves the resume package; at a start (`clear`, `startup`) restores this conversation's package or lists this folder's; after `compact` the re-orientation pointer |
+| `runner/resume.py` | Resume packages (gather, link, compose, deliver) and `claim <id>`, which the agent runs to load a listed package |
 | `runner/clients.py` | Each client's payload, usage source and answer format; recognises other clients' payloads |
 | `runner/opencode-plugin.js` | Template of OpenCode's and Kilo's plugin: the wizard fills in the interpreter, runner arguments and database |
 | `runner/wizard.py` | `plan`, `apply`, `reset`, `status`, `note-path` |
 | `runner/pages.py` | `MEM OPTIMIZE PAGES`: heavy pages from a mem-stats report, with suggestions |
 | `~/.mem/mem-optimize/setup-log.json`, `~/.mem/mem-optimize/backups/` (user scope), `custom/setup-log.json`, `custom/backups/` (project scope) | What setup added, and the settings files as they were |
-| `custom/state/` (project scope) or `~/.mem/mem-optimize/state/` (all projects) | Runtime state, one file per session where sessions could collide: advisor state (`advisor-state/`), held prompts (`held-prompt-<hash>.json`), handoff notes (`handoff-<folder>-<session>.md`), Qwen's recorded usage (`usage-recorded/`); logs without content, with each entry's working directory. A `handoff.md` or `held-prompt.json` without a hash is an earlier version's: the note is never delivered, the held prompt only in its own folder. Self-ignoring `.gitignore`: never committed |
+| `custom/state/` (project scope) or `~/.mem/mem-optimize/state/` (all projects) | Runtime state, one file per session where sessions could collide: resume packages (`packages/`), advisor state (`advisor-state/`), held prompts (`held-prompt-<hash>.json`), handoff notes (`handoff-<folder>-<session>.md`), Qwen's recorded usage (`usage-recorded/`); logs without content, with each entry's working directory. A `handoff.md` or `held-prompt.json` without a hash is an earlier version's: the note is never delivered, the held prompt only in its own folder. Self-ignoring `.gitignore`: never committed |
 
 For all projects, setup copies the runners to `~/.mem/mem-optimize/<version>/runner/`, so the hooks do not depend on
 one project's KB.

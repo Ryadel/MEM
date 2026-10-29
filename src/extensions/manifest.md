@@ -205,18 +205,18 @@ repository, in `~/.mem/mem-stats/state/`.
 
 ### mem-optimize
 
-- **version**: 0.2.1
+- **version**: 0.3.0
 - **provides**: `OPTIMIZE` (subcommands `SETUP`, `STATUS`, `RESET`, `PAGES`), and context-lifecycle hooks for
   Claude Code, Codex, Factory Droid, Qwen Code, OpenCode and Kilo Code
 - **precedence**: base
 - **external actions**: no
 - **executable content**: yes — `runner/hook_prompt.py`, `runner/hook_session.py`, `runner/clients.py`,
-  `runner/wizard.py`, `runner/pages.py` (Python 3.11+, standard library), `runner/opencode-plugin.js` (OpenCode
-  plugin template)
+  `runner/resume.py`, `runner/wizard.py`, `runner/pages.py` (Python 3.11+, standard library),
+  `runner/opencode-plugin.js` (OpenCode plugin template)
 - **default mode**: may-write
 - **summary**: keep long sessions from wasting tokens — advice when a restart pays, a guided restart that carries
-  the work over, a stop before a prompt rewrites an expired cache, re-orientation after a compaction, and the
-  knowledge base pages worth lightening; installed by a setup wizard.
+  the work over, the last exchanges restored after every `/clear`, a stop before a prompt rewrites an expired cache,
+  re-orientation after a compaction, and the knowledge base pages worth lightening; installed by a setup wizard.
 - **base files**:
 
 ```text
@@ -224,6 +224,7 @@ extensions/mem-optimize/index.md
 extensions/mem-optimize/runner/hook_prompt.py
 extensions/mem-optimize/runner/hook_session.py
 extensions/mem-optimize/runner/clients.py
+extensions/mem-optimize/runner/resume.py
 extensions/mem-optimize/runner/wizard.py
 extensions/mem-optimize/runner/pages.py
 extensions/mem-optimize/runner/opencode-plugin.js

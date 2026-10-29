@@ -4,6 +4,32 @@ All notable MEM changes are documented in this file.
 
 MEM uses `MAJOR.MINOR.BUILD` versioning. Version-to-version migration steps are documented in [MEM.upgrade.md](MEM.upgrade.md).
 
+## 1.2.3 - 2026-10-29
+
+### Changed
+
+- **`mem-optimize` 0.3.0**: on Claude Code, every `/clear` carries the conversation over. The hook that ends the
+  conversation (SessionEnd, reason `clear`) saves the snapshot of its last exchanges with the client process the chat
+  runs in; the hook that starts the fresh session, from the same process under a second later, restores it with the
+  chat's handoff note and held message, and never another chat's, even in the same folder. `auto` (default), `offer`
+  or `off`; a note the conversation wrote under another name joins its package. When a start cannot be matched, or
+  on clients without that hook, several packages are listed and the agent loads the chosen one with
+  `runner/resume.py claim <id>`, once. A new conversation never receives a snapshot.
+- **`mem-optimize` 0.2.1**: the user-scope hooks serve every project, and their restart state was shared: a `/clear`
+  in one project could carry over a prompt held in another. Held prompts, handoff notes and advisor state are now one
+  file per session and delivered only in their own folder; the shared `handoff.md` is never delivered
+  (`wizard.py note-path` names a note); the carried-over context stays under the cap, the held message always whole;
+  the user-scope setup log moves to `~/.mem/mem-optimize/`; hook logs record the working directory.
+- **`mem-optimize` 0.2.0**: Factory Droid, Qwen Code, OpenCode and Kilo Code, through client adapters
+  (`runner/clients.py`) and, for OpenCode and Kilo, a plugin (`runner/opencode-plugin.js`) that adds context as a
+  synthetic message part. Clients that cannot carry both the advice and the stop message (Cursor, Antigravity, GitHub
+  Copilot) are not supported, and their payloads are ignored.
+- `MEM.md` gets version 1.2.3 so that existing installations see the extension update; its text is unchanged.
+
+### Configuration
+
+- No option was added, removed or renamed.
+
 ## 1.2.2 - 2026-10-16
 
 ### Changed

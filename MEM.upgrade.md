@@ -22,6 +22,40 @@ Before applying an upgrade, identify the current local MEM version and the targe
 1.0.0 through 1.0.2. A knowledge base on a base earlier than 1.0.3 should be re-initialized against the current
 MEM version rather than migrated step by step.
 
+## 1.2.2 -> 1.2.3
+
+### Summary
+
+A build release for one extension. `mem-optimize` moves from 0.1.2 to 0.3.0: support for Factory Droid, Qwen Code,
+OpenCode and Kilo Code (0.2.0); restart state isolated per project and per conversation, so that a `/clear` in one
+project never carries over what another left (0.2.1); and, on Claude Code, the last exchanges of a conversation
+restored automatically after every `/clear`, only in the chat that typed it (0.3.0). The core text is unchanged apart
+from the version.
+
+### Required actions
+
+- Replace `MEM.md` with version 1.2.3.
+- The extension version check now reports `mem-optimize` 0.3.0 where it is installed. Propose the update as usual;
+  never apply it without approval. The manifest adds `runner/clients.py`, `runner/opencode-plugin.js` and
+  `runner/resume.py`; no base file is removed.
+- After `mem-optimize` is updated: run `MEM OPTIMIZE SETUP` again with the recorded answers, adding the new question
+  on restoring after `/clear` (answer key `clear_restore`, default `auto` when the guided restart is on). On Codex,
+  tell the user to approve the changed hooks with `/hooks`; OpenCode and Kilo load the plugin when restarted. If the
+  client refuses the agent's write to its own settings, give the user the exact command to run.
+- Nothing to migrate by hand: the user-scope setup log moves to `~/.mem/mem-optimize/` at the next `apply` or `reset`,
+  and the advisor's earlier state file is still read. A shared `~/.mem/mem-optimize/state/handoff.md` left by an
+  earlier version is no longer delivered; `MEM OPTIMIZE STATUS` lists it so that the user can recover or delete it.
+
+### Configuration changes
+
+- None in `MEM.md`.
+
+### Verification
+
+- `MEM.md` reports version 1.2.3; `extensions/mem-optimize/index.md` reports 0.3.0 and `runner/resume.py` exists.
+- Where the guided restart is enabled for Claude Code, its settings file holds the same `hook_session.py` command
+  under `SessionStart` (matchers `clear`, `startup`) and `SessionEnd`, with `--packages` and `--restore`.
+
 ## 1.2.1 -> 1.2.2
 
 ### Summary
