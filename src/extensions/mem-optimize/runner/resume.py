@@ -150,15 +150,24 @@ class Store:
                 return target.exists()
         return False
 
-    def linked(self, items, process, now=None):
-        """The key of the package this /clear continues: ended moments ago in the same client process."""
+    def linked(self, process, window, now=None):
+        """The package this /clear continues: ended moments ago in the same client process, whatever folder it was
+        saved under (a chat's working directory can move during the conversation: measured 2026-10-29). Returns
+        (key, item) with the note and held message of the same conversation, or None."""
         now, best = now or time.time(), None
-        for key, item in items.items():
-            record = read(item["package"]) if item.get("package") else {}
-            if process and record.get("process") == process and 0 <= now - (record.get("ended") or 0) <= LINK:
-                if best is None or record["ended"] > best[1]:
-                    best = (key, record["ended"])
-        return best and best[0]
+        if not process or self.packages is None or not self.packages.is_dir():
+            return None
+        for package in self.packages.glob("*.json"):
+            record = read(package) if ".delivered-" not in package.name else {}
+            if record.get("process") == process and 0 <= now - (record.get("ended") or 0) <= LINK:
+                if best is None or record["ended"] > best[1]["ended"]:
+                    best = (package, record)
+        if best is None:
+            return None
+        package, record = best
+        key = package.stem.split("-", 1)[1]
+        item = self.gather(record["cwd"], window, now).get(key) or {}
+        return key, {**item, "package": package}
 
 
 def compose(item, restart="/clear", startup=False, claude_style=True, kb_root=None, cap=CAP, ask_first=False,

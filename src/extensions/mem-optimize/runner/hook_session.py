@@ -134,12 +134,13 @@ def main():
             return
         if source == "clear" and linkable:
             process = args.process or clients.client_process()
-            chosen, began = store.linked(items, process), time.time()
+            found, began = store.linked(process, window), time.time()
             # The SessionEnd hook may still be writing the package: wait for it a little, never long.
-            while chosen is None and process and time.time() - began < args.link_wait:
+            while found is None and process and time.time() - began < args.link_wait:
                 time.sleep(0.1)
-                items = store.gather(cwd, window)
-                chosen = store.linked(items, process)
+                found = store.linked(process, window)
+            if found is not None:  # this conversation's package, even if saved under a folder it had moved to
+                chosen, items = found[0], {**items, found[0]: found[1]}
             entry.update(process=process, linked=chosen is not None, waited=round(time.time() - began, 2))
             if chosen is None and items:
                 why_list = ("This /clear could not be matched to the conversation it ended, and this working directory "
