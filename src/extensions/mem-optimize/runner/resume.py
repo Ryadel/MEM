@@ -50,9 +50,13 @@ def fresh(path, max_age, now=None):
         return False
 
 
+CLAIM_STALE = 60  # seconds after which a .claim marker is a leftover of an interrupted delivery
+
+
 def reserved(path):
-    """Whether a part is being delivered by another session right now (its .claim marker exists)."""
-    return Path(str(path) + ".claim").exists()
+    """Whether a part is being delivered by another session right now: its .claim marker exists and is recent. An
+    older marker is a leftover of an interrupted delivery, which reserve() clears: the part is a candidate again."""
+    return fresh(Path(str(path) + ".claim"), CLAIM_STALE)
 
 
 def reserve(path):
@@ -63,7 +67,7 @@ def reserve(path):
             os.close(os.open(marker, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
             return marker
         except FileExistsError:
-            if fresh(marker, 60):
+            if fresh(marker, CLAIM_STALE):
                 return None
             marker.unlink(missing_ok=True)
         except OSError:
