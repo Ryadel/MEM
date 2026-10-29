@@ -50,6 +50,27 @@ def fresh(path, max_age, now=None):
         return False
 
 
+def reserved(path):
+    """Whether a part is being delivered by another session right now (its .claim marker exists)."""
+    return Path(str(path) + ".claim").exists()
+
+
+def reserve(path):
+    """Take a part for delivery: create its .claim marker exclusively. A marker left by a crash goes after a minute."""
+    marker = Path(str(path) + ".claim")
+    for _ in range(2):
+        try:
+            os.close(os.open(marker, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+            return marker
+        except FileExistsError:
+            if fresh(marker, 60):
+                return None
+            marker.unlink(missing_ok=True)
+        except OSError:
+            return None
+    return None
+
+
 def hhmm(seconds):
     return time.strftime("%H:%M", time.localtime(seconds))
 
@@ -62,6 +83,35 @@ def renamed(path, label):
         number += 1
         target = path.with_name("%s-%d%s" % (stamp, number, path.suffix))
     return target
+
+
+def last_writes(transcript, scan=1 << 22):
+    """[(path, content)] of the files the main conversation last wrote or edited, oldest first, from the last 4 MB
+    of a Claude Code transcript: content is what the Write tool wrote, None for an edit."""
+    with open(transcript, "rb") as stream:
+        stream.seek(0, 2)
+        start = max(0, stream.tell() - scan)
+        stream.seek(start)
+        lines = stream.read().split(b"\n")[1 if start else 0:]
+    writes = {}
+    for line in lines:
+        if b'"tool_use"' not in line:
+            continue
+        try:
+            record = json.loads(line)
+        except ValueError:
+            continue
+        if record.get("type") != "assistant" or record.get("isSidechain"):
+            continue
+        for block in (record.get("message") or {}).get("content") or []:
+            if not isinstance(block, dict) or block.get("type") != "tool_use":
+                continue
+            given = block.get("input") or {}
+            if block.get("name") in ("Write", "Edit", "MultiEdit") and given.get("file_path"):
+                path = Path(given["file_path"])
+                writes.pop(str(path), None)  # keep the order of the last write
+                writes[str(path)] = (path, given.get("content") if block["name"] == "Write" else None)
+    return list(writes.values())
 
 
 class Store:
@@ -96,7 +146,8 @@ class Store:
             for package in self.packages.glob(prefix + "*.json"):
                 if ".delivered-" not in package.name and fresh(package, window, now):
                     items.setdefault(package.stem[len(prefix):], {})["package"] = package
-        return items
+        # a package another session is delivering right now is no candidate, whichever part it holds
+        return {key: item for key, item in items.items() if not any(reserved(part) for part in item.values())}
 
     def prune(self, now=None):
         """Delete delivered parts and unclaimed packages older than KEEP."""
@@ -122,7 +173,7 @@ class Store:
             return "no-session"
         prompt = load("hook_prompt")
         found = prompt.turns(Path(transcript)) if transcript and Path(transcript).is_file() else []
-        adopted = self.adopt(cwd, session, found)
+        adopted = self.adopt(cwd, session, transcript)
         record = {"session": session, "cwd": cwd, "client": client, "process": process, "ended": now or time.time(),
                   "snapshot": prompt.snapshot(found, snapshot_chars) if snapshot_chars > 0 else ""}
         target = self.package(cwd, session)
@@ -132,22 +183,30 @@ class Store:
         os.replace(temporary, target)
         return "saved" + ("+note" if adopted else "")
 
-    def adopt(self, cwd, session, found):
+    def adopt(self, cwd, session, transcript):
         """A handoff note this conversation wrote under another name (from note-path, guessed, or the shared
-        handoff.md) becomes its session's: the transcript proves who wrote it."""
+        handoff.md) becomes its session's, only on proof that the file still holds what this conversation wrote: the
+        Write tool's content in its transcript. Having written a path once proves nothing about its content now
+        (another session may have overwritten it since); an edited note has no such proof and stays where it is."""
         clients = self.clients
-        if self.handoff is None:
+        if self.handoff is None or not transcript or not Path(transcript).is_file():
             return False
         target = clients.project_note(self.handoff, cwd, session)
         series = self.handoff.stem + "-" + self.prefix(cwd)
-        for written in reversed([f for turn in found for f in turn["files"]]):
-            path = Path(written)
-            if (clients.folder(str(path.parent)) == clients.folder(str(self.handoff.parent)) and path.is_file()
-                    and (path.name == self.handoff.name or (path.name.startswith(series)
-                                                            and ".consumed-" not in path.name))):
-                if path != target and not target.exists():
-                    os.replace(path, target)
-                return target.exists()
+        for path, content in reversed(last_writes(Path(transcript))):
+            if (clients.folder(str(path.parent)) != clients.folder(str(self.handoff.parent)) or not path.is_file()
+                    or not (path.name == self.handoff.name or (path.name.startswith(series)
+                                                               and ".consumed-" not in path.name))):
+                continue
+            if clients.folder(str(path)) == clients.folder(str(target)):
+                return True  # the advisor named it after this session: nobody else writes it
+            try:
+                proven = content is not None and path.read_text(encoding="utf-8") == content
+            except OSError:
+                proven = False
+            if proven and not target.exists():
+                os.replace(path, target)
+            return target.exists()
         return False
 
     def linked(self, process, window, now=None):
@@ -158,7 +217,7 @@ class Store:
         if not process or self.packages is None or not self.packages.is_dir():
             return None
         for package in self.packages.glob("*.json"):
-            record = read(package) if ".delivered-" not in package.name else {}
+            record = read(package) if ".delivered-" not in package.name and not reserved(package) else {}
             if record.get("process") == process and 0 <= now - (record.get("ended") or 0) <= LINK:
                 if best is None or record["ended"] > best[1]["ended"]:
                     best = (package, record)
@@ -216,19 +275,27 @@ def compose(item, restart="/clear", startup=False, claude_style=True, kb_root=No
                          "re-send the previous session's whole context." + ("" if note else orient) + act + message)
             confirm.append("their held message was carried over")
         if recent:
-            room = None if cap is None else cap - sum(len(p) + 2 for p in parts) - 400  # header and closing line
-            if room is None or room > 500:
-                if room is not None and len(recent) > room:  # keep the latest turns
+            # where the whole snapshot stays once delivered: the package, or the held message it came with
+            source = plan["package"] if record.get("snapshot") else plan["held"]
+            whole = (" They were cut to fit: read them whole in the \"snapshot\" field of " + str(source.resolve()) +
+                     ".")
+            room = None if cap is None else cap - sum(len(p) + 2 for p in parts) - 400 - len(whole)
+            if room is not None and room <= 500:  # no room: by path only
+                parts.append("The previous session's last exchanges did not fit here: read them in the \"snapshot\" "
+                             "field of " + str(source.resolve()) + " before answering.")
+                confirm.append("the last exchanges were restored by path")
+            else:
+                if room is not None and len(recent) > room:  # keep the latest turns, and say where the rest is
                     recent_cut = recent[-room:]
                     recent_cut = (recent_cut[recent_cut.find("\n\nUser: ") + 2:] if "\n\nUser: " in recent_cut
                                   else recent_cut)
                 else:
-                    recent_cut = recent
+                    recent_cut, whole = recent, ""
                 when = (" (the session that ended at " + hhmm(ended) + ")") if ended else ""
                 parts.append("The previous session's last exchanges" + when + ", extracted mechanically from its "
                              "transcript (oldest first; the KB stays authoritative where they differ)." +
                              ("" if note or held else orient) + " Use them to follow the user's next messages; if the "
-                             "user starts something else, follow the user.\n\n" + recent_cut)
+                             "user starts something else, follow the user." + whole + "\n\n" + recent_cut)
                 confirm.append("the last exchanges" + (" of the " + hhmm(ended) + " session" if ended else "") +
                                " were restored")
         # The VS Code extension does not display systemMessage: the agent's first reply is the visible confirmation.
@@ -241,16 +308,25 @@ def compose(item, restart="/clear", startup=False, claude_style=True, kb_root=No
 
 
 def deliver(item, plan):
-    """Mark a package delivered before its context is printed: a rename that fails means another session took it
-    (False), and nothing is printed then."""
-    for part in ("package", "note", "held"):
-        if item.get(part):
-            try:
-                os.rename(item[part], plan[part])
-            except FileNotFoundError:
-                if part == "package" or not item.get("package"):
-                    return False
-    return True
+    """Mark a package delivered before its context is printed, all or nothing: every part is reserved first (an
+    exclusive .claim marker, in a fixed order), then checked, then renamed. False when another session holds or took
+    any part: nothing is renamed and nothing is printed then."""
+    parts = sorted((part for part in ("package", "note", "held") if item.get(part)), key=lambda part: str(item[part]))
+    markers = []
+    try:
+        for part in parts:
+            marker = reserve(item[part])
+            if marker is None:
+                return False
+            markers.append(marker)
+        if not all(item[part].is_file() for part in parts):
+            return False
+        for part in parts:
+            os.rename(item[part], plan[part])
+        return True
+    finally:
+        for marker in markers:
+            marker.unlink(missing_ok=True)
 
 
 def claim_command(store, cwd):

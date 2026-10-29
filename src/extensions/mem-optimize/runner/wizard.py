@@ -106,8 +106,10 @@ class Layout:
         self.stats_db, self.prices = args.stats_db, args.prices
         self.clients = (args.client,) if args.client else CLIENTS
         self.real_home = args.home == "~"
-        self.version = re.search(r"\*\*version\*\*:\s*(\S+)",
-                                 (self.extension / "index.md").read_text(encoding="utf-8")).group(1)
+        index = self.extension / "index.md"
+        # The user-scope copy (~/.mem/mem-optimize/<version>/runner) has no index.md: its folder names the version.
+        self.version = (re.search(r"\*\*version\*\*:\s*(\S+)", index.read_text(encoding="utf-8")).group(1)
+                        if index.is_file() else self.extension.name)
 
     def xdg(self, variable, default):
         """XDG folders, honoured for the real home only (tests pass their own)."""
