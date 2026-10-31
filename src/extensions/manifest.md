@@ -205,7 +205,7 @@ repository, in `~/.mem/mem-stats/state/`.
 
 ### mem-optimize
 
-- **version**: 0.3.0
+- **version**: 0.3.1
 - **provides**: `OPTIMIZE` (subcommands `SETUP`, `STATUS`, `RESET`, `PAGES`), and context-lifecycle hooks for
   Claude Code, Codex, Factory Droid, Qwen Code, OpenCode and Kilo Code
 - **precedence**: base

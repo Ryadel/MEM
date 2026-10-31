@@ -18,6 +18,7 @@ import json
 import os
 import sqlite3
 import subprocess
+import sys
 from contextlib import closing
 from datetime import datetime
 from pathlib import Path
@@ -207,6 +208,121 @@ def instant(value):
         return datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
     except ValueError:
         return None
+
+
+def codex_auth_file():
+    """Codex's credentials file: auth.json in CODEX_HOME, ~/.codex by default."""
+    return Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex") / "auth.json"
+
+
+def codex_signed_in(path):
+    """True when Codex is signed in with a ChatGPT account (auth_mode "chatgpt"), whose conversation cache OpenAI
+    announced in October 2026 as kept indefinitely; False with an API key, or when it cannot be told (no file:
+    credentials in the system keyring, or never signed in). Reads auth_mode alone, never the tokens."""
+    try:
+        mode = json.loads(Path(path).read_text(encoding="utf-8")).get("auth_mode")
+    except (OSError, ValueError, AttributeError):
+        return False
+    return isinstance(mode, str) and mode.lower().startswith("chatgpt")
+
+
+# --- Claude Code's idle compaction ------------------------------------------------------------------------------
+
+# Its conditions, from Claude Code's settings reference (`idleCompaction`), environment variables and changelog,
+# 2026-10-31. The changelog adds it to VS Code in 2.1.314, but VS Code 2.1.310 was seen applying it (2026-10-30).
+IDLE_COMPACT_MIN = (200_000, 100_000)  # CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS: default, floor
+IDLE_COMPACT_SINCE = (2, 1, 290)
+NO_AUTO_COMPACT = ("DISABLE_AUTO_COMPACT", "DISABLE_COMPACT")  # either turns idle compaction off with auto-compact
+# Idle compaction needs the feature flags Claude Code fetches from Anthropic, not fetched with these set; before
+# 2.1.314, not with telemetry off nor on a third-party provider either.
+NO_FEATURE_FLAGS = ("DISABLE_GROWTHBOOK", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC")
+NO_FEATURE_FLAGS_BEFORE = ((2, 1, 314), ("DISABLE_TELEMETRY", "DO_NOT_TRACK", "CLAUDE_CODE_USE_BEDROCK",
+                                         "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY",
+                                         "CLAUDE_CODE_USE_ANTHROPIC_AWS", "CLAUDE_CODE_USE_MANTLE"))
+
+
+def claude_home():
+    """Claude Code's configuration folder: CLAUDE_CONFIG_DIR, ~/.claude by default."""
+    return Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
+
+
+def managed_dir():
+    """Where Claude Code reads managed-settings.json and managed-settings.d/ on this system."""
+    if os.name == "nt":
+        return Path(r"C:\Program Files\ClaudeCode")
+    return Path("/Library/Application Support/ClaudeCode" if sys.platform == "darwin" else "/etc/claude-code")
+
+
+def claude_settings(cwd, home=None):
+    """Claude Code's settings for a session in cwd, top-level keys merged by precedence (user, project, project
+    local, managed files), each file's `env` block merged into one. Project files are read in cwd and in the git
+    repository holding it. Server-managed settings, MDM policies and --settings are not visible here."""
+    files = [Path(home or claude_home()) / "settings.json"]
+    if cwd:
+        folder = Path(cwd)
+        root = next((p for p in (folder, *folder.parents) if (p / ".git").exists()), None)
+        for place in dict.fromkeys(p for p in (root, folder) if p is not None):
+            files += [place / ".claude" / "settings.json", place / ".claude" / "settings.local.json"]
+    managed = managed_dir()
+    files += [managed / "managed-settings.json"] + sorted((managed / "managed-settings.d").glob("*.json"))
+    merged, env = {}, {}
+    for path in files:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(data, dict):
+            env.update(data.get("env") if isinstance(data.get("env"), dict) else {})
+            merged.update(data)
+    merged["env"] = env
+    return merged
+
+
+def switched_on(value):
+    return value is not None and str(value).strip().lower() not in ("", "0", "false", "no", "off")
+
+
+def version_tuple(text):
+    try:
+        return tuple(int(part) for part in str(text).split("-")[0].split(".")[:3])
+    except ValueError:
+        return None
+
+
+def claude_idle_compaction(record, cwd, tokens, home=None):
+    """Whether Claude Code's idle compaction will shed this conversation's context after a pause: "expected", or
+    the first condition it fails. Then the pause is the client's to handle, and the summary is applied only after
+    the next prompt has passed the prompt hook (observed 2026-10-30): stopping that prompt would delay it.
+
+    Conditions checked: the last request wrote to the one-hour cache (never assumed); Claude Code 2.1.290 or later
+    by the transcript, not an SDK or -p session; idleCompaction and autoCompactEnabled not false in the settings
+    files, neither DISABLE_AUTO_COMPACT nor DISABLE_COMPACT set; feature flags fetched from Anthropic; a context of at
+    least CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS. The version is the one of the last reply: an update during the pause is
+    not seen. Not knowable here: server-managed or MDM settings, and whether the computer slept before the hour was up
+    (no summary then)."""
+    creation = (record.get("usage") or {}).get("cache_creation") or {}
+    if not (creation.get("ephemeral_1h_input_tokens") or 0) > 0:
+        return "cache-not-1h"
+    entrypoint = str(record.get("entrypoint") or "")
+    if entrypoint.startswith("sdk"):
+        return "sdk-session"
+    version = version_tuple(record.get("version"))
+    if version is None or version < IDLE_COMPACT_SINCE:
+        return "version"
+    settings = claude_settings(cwd, home)
+    env = {**settings["env"], **os.environ}
+    if (settings.get("idleCompaction") is False or settings.get("autoCompactEnabled") is False
+            or any(switched_on(env.get(name)) for name in NO_AUTO_COMPACT)):
+        return "turned-off"
+    before, older = NO_FEATURE_FLAGS_BEFORE
+    if any(switched_on(env.get(name)) for name in NO_FEATURE_FLAGS + (older if version < before else ())):
+        return "no-feature-flags"
+    minimum = IDLE_COMPACT_MIN[0]
+    if str(env.get("CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS", "")).strip().isdigit():
+        minimum = max(IDLE_COMPACT_MIN[1], int(env["CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS"]) or IDLE_COMPACT_MIN[0])
+    if tokens < minimum:
+        return "below-threshold"
+    return "expected"
 
 
 # --- transcripts in formats not read natively (Droid, Qwen) -----------------------------------------------------

@@ -5,7 +5,7 @@ grown large, or that resumes after the prompt cache expired, costs far more than
 knowledge base. mem-optimize watches the session's size, tells the agent when a restart pays, carries the work into
 the fresh session, and stops the first prompt after a long pause before it rewrites the whole context into the cache.
 
-- **version**: 0.3.0
+- **version**: 0.3.1
 - **provides**: `OPTIMIZE`
 - **subcommands**: `SETUP`, `STATUS`, `RESET`, `PAGES` - closed set
 - **precedence**: base
@@ -36,11 +36,37 @@ the fresh session, and stops the first prompt after a long pause before it rewri
 | **Advisor** | Silent below the threshold (default 400k tokens of context). Above it the agent says, once, at a natural breakpoint, that a restart would pay; again past the insist threshold (600k) | One interpreter start per prompt; no tokens below the threshold |
 | **Guided restart** | Only after the user agrees, the agent updates the KB's resume point, writes a short handoff note and asks for `/clear`; the fresh session opens by confirming the note was restored | The note, a few thousand characters |
 | **Restore after `/clear`** | Every `/clear` (on OpenCode and Kilo, `/new`) carries the conversation over — the snapshot of its last exchanges (prompts, final replies, files changed) is restored in the fresh session, with any handoff note or held message of that chat, and the first reply says what was restored. Claude Code saves it as the chat ends and proves the chat by its client process; the other clients save a checkpoint at the end of every turn and match it by process too, which there may be shared by several chats (then a list). `auto` (default), `offer` (one line, loaded on request) or `off` | The snapshot, at most 6,000 characters, against the whole context `/clear` sheds; on the other clients, a short local write at the end of every turn |
-| **Long-pause stop** | After a pause longer than the prompt cache lasts, on a context of 200k+ tokens, the first prompt is stopped once with a message offering (A) `/clear`, the message being carried into the fresh session with a snapshot of the last exchanges, or (B) sending again to continue here | Nothing is sent to the model when stopping |
+| **Long-pause stop** | After a pause longer than the prompt cache lasts, on a context of 200k+ tokens, the first prompt is stopped once with a message offering (A) `/clear`, the message being carried into the fresh session with a snapshot of the last exchanges, or (B) sending again to continue here. After a compaction (`/compact`, auto-compact) the size is the summary's; a pause Claude Code's idle compaction will handle is left to it (no stop, no advice); `/clear`, `/new` and `/compact` reaching the prompt hook as text are never stopped; Codex signed in with ChatGPT is never stopped (see [Long pause and the client's own cache handling](#long-pause-and-the-clients-own-cache-handling)) | Nothing is sent to the model when stopping |
 | **After a compaction** | When the client compacts the conversation, a short pointer tells the agent to re-read the KB index and the latest resume point: the summary stays the reference for the work in progress, the KB for decisions and conventions | A few hundred characters, once per compaction, plus the two re-reads |
 | **Unused tools** | Built-in tools the user chooses to disable — `Artifact` always offered, plus those never or rarely called, or heavy — so their definitions leave every request | Takes effect in a new session |
 
 Thresholds are configurable. The advisor and the stop read the session transcript; they send nothing anywhere.
+
+### Long pause and the client's own cache handling
+
+- **Claude Code's idle compaction** (`idleCompaction`, on by default; VS Code and the desktop app since 2.1.314)
+  compacts a conversation of 200k+ tokens idle for about an hour on the one-hour cache, so that the next message
+  sends a summary. The stop measures the context from the transcript, where a compaction leaves a `compact_boundary`
+  with the summary's size (`postTokens`) and no usage of its own: the boundary stands for the last request, so after
+  `/compact` or auto-compact a conversation is not stopped, nor advised, on a size it no longer has. Idle compaction
+  is different: its summary stays in the client and the boundary is written only after the next prompt has passed
+  the prompt hook (observed 2026-10-30), so stopping that prompt would only delay a summary that already makes the
+  pause cheap. When its conditions hold, the stop and the advisor stand down for that prompt (log: `decision`
+  `idle-compaction`, `idle_compaction` `expected`, or the first condition that failed). Checked from the transcript
+  and the settings files: the last request wrote to the one-hour cache; Claude Code 2.1.290 or later, not an SDK or
+  `-p` session (the changelog adds VS Code in 2.1.314, but 2.1.310 was seen compacting there); `idleCompaction` and
+  `autoCompactEnabled` not `false` in user, project (cwd and its repository), local or managed settings files
+  (`CLAUDE_CONFIG_DIR`, or `--claude-home`); `DISABLE_AUTO_COMPACT` and `DISABLE_COMPACT` not set; feature flags
+  fetched (`DISABLE_GROWTHBOOK`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`; before 2.1.314 also telemetry off and
+  third-party providers); the context at or above `CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS` (200k, floor 100k). Not
+  visible to the hook: server-managed and MDM settings, an update during the pause, and a computer asleep before the
+  hour was up (no summary then: the rewrite happens unstopped). On the five-minute cache, or with idle compaction
+  off, the stop works as before; `"idleCompaction": false` gives the pause back to mem-optimize.
+- **Codex signed in with ChatGPT** (`auth_mode` `chatgpt` in `auth.json`, in `CODEX_HOME` or `~/.codex`): OpenAI
+  announced in October 2026 that it keeps the conversation's cache indefinitely, so a pause costs no rewrite and the
+  stop never applies; the advisor still does. Only `auth_mode` is read, never the tokens. With an API key, or when the
+  file is missing (credentials in the system keyring), the 30-minute lifetime applies (`--codex-ttl`). Announced, not
+  documented by OpenAI at the time of writing: check again when it is.
 
 ## Clients
 

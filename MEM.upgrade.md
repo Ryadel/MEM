@@ -22,6 +22,32 @@ Before applying an upgrade, identify the current local MEM version and the targe
 1.0.0 through 1.0.2. A knowledge base on a base earlier than 1.0.3 should be re-initialized against the current
 MEM version rather than migrated step by step.
 
+## 1.2.3 -> 1.2.4
+
+### Summary
+
+A build release for one extension. `mem-optimize` 0.3.1 measures a compacted conversation on its summary, leaves a
+pause to Claude Code's idle compaction when its conditions hold, never stops `/clear`, `/new` or `/compact`, and never
+stops Codex signed in with ChatGPT. The core text is unchanged apart from the version.
+
+### Required actions
+
+- Replace `MEM.md` with version 1.2.4.
+- The extension version check now reports `mem-optimize` 0.3.1 where it is installed. Propose the update as usual;
+  never apply it without approval. No base file is added or removed.
+- After `mem-optimize` is updated: run `MEM OPTIMIZE SETUP` again with the recorded answers, so that the hooks move to
+  the runners in `~/.mem/mem-optimize/0.3.1/runner/` (project scope: the KB's own runner folder). No new question. On
+  Codex, tell the user to approve the changed hooks with `/hooks`; OpenCode and Kilo load the plugin when restarted.
+
+### Configuration changes
+
+- None in `MEM.md`.
+
+### Verification
+
+- `MEM.md` reports version 1.2.4; `extensions/mem-optimize/index.md` reports 0.3.1.
+- The hook commands in the clients' settings point to the 0.3.1 runners.
+
 ## 1.2.2 -> 1.2.3
 
 ### Summary

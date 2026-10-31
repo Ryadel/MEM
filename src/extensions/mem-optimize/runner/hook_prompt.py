@@ -16,7 +16,11 @@ fresh session in the same folder after /clear (or a new conversation), and the u
 is told, in --lang, how to choose: /clear
 (recommended) or the same message again within --resend-window seconds, which then passes. Since the model is not
 called, no agent can write a handoff note: instead a mechanical snapshot of the last exchanges (the user's prompts,
-the agent's final replies, the files it changed), at most --snapshot-chars long, is kept with the held prompt.
+the agent's final replies, the files it changed), at most --snapshot-chars long, is kept with the held prompt. A
+prompt following a compaction is measured on the summary, not on the context it replaced. On Claude Code, a pause
+its idle compaction will handle (clients.claude_idle_compaction) is left to it: neither stopped nor advised, since the
+summary is applied only after this hook. Codex signed in with ChatGPT keeps the conversation's cache, so it is never
+stopped.
 
 What was told to each session is kept beside --state, one file per session (advisor-state/<hash>.json), so that
 sessions running at once in several projects never rewrite each other's. Standard library only; on any error it
@@ -55,6 +59,8 @@ STOP = {
 COST = {"en": ", about {currency} {amount:.2f} at API rates", "it": ", circa {currency} {amount:.2f} a tariffe API"}
 # How the user starts a fresh session: a slash command (/clear, OpenCode's /new).
 ACTION = {"en": "Type {command}", "it": "Scrivi {command}"}
+# Commands that shed the context: never stopped, held or advised when they reach the prompt hook as text.
+RESTART = re.compile(r"\s*/(?:clear|new|compact)(?:\s|$)", re.I)
 
 
 def load_clients():
@@ -138,11 +144,15 @@ def backwards(path):
 
 
 def last_usage(path, codex_ttl=1800):
-    """The last request's usage, normalized: {tokens, at, model, usage (for the price card), ttl or None}.
+    """The last request's usage, normalized: {tokens, at, model, usage (for the price card), ttl or None}, plus
+    `compacted` or `codex` when they apply.
 
-    Claude Code: the last main-session assistant line carrying usage. Codex: the last token_usage_record, or the last
-    event_msg/token_count of older rollouts, with the model of the latest turn_context; its cache lifetime is not in
-    the rollout, so codex_ttl applies (OpenAI: 30 minutes for GPT-5.6 and later)."""
+    Claude Code: the last main-session assistant line carrying usage, unless a compaction came after it. A compaction
+    (/compact, auto-compact, idle compaction) writes a compact_boundary and the summary but no usage: the next request
+    re-sends the summary (postTokens), not the context measured before, so the boundary stands for the last request,
+    at the time it was written. Codex: the last token_usage_record, or the last event_msg/token_count of older
+    rollouts, with the model of the latest turn_context; its cache lifetime is not in the rollout, so codex_ttl applies
+    (OpenAI: 30 minutes for GPT-5.6 and later)."""
     found = None
     for line in backwards(path):
         if found is not None:
@@ -153,7 +163,16 @@ def last_usage(path, codex_ttl=1800):
                     continue
                 return found
             continue
-        if b'"usage"' in line and b'"assistant"' in line:
+        if b'"compact_boundary"' in line:
+            try:
+                record = json.loads(line)
+            except ValueError:
+                continue
+            if record.get("type") == "system" and record.get("subtype") == "compact_boundary":
+                after = (record.get("compactMetadata") or {}).get("postTokens")
+                return {"tokens": after if isinstance(after, int) else 0, "at": record.get("timestamp"),
+                        "model": None, "usage": {}, "ttl": None, "compacted": True}
+        elif b'"usage"' in line and b'"assistant"' in line:
             try:
                 record = json.loads(line)
             except ValueError:
@@ -162,7 +181,8 @@ def last_usage(path, codex_ttl=1800):
             if (record.get("type") == "assistant" and not record.get("isSidechain")
                     and isinstance(message.get("usage"), dict) and message.get("model") != "<synthetic>"):
                 return {"tokens": context_tokens(message["usage"]), "at": record.get("timestamp"),
-                        "model": message.get("model"), "usage": message["usage"], "ttl": None}
+                        "model": message.get("model"), "usage": message["usage"], "ttl": None,
+                        "version": record.get("version"), "entrypoint": record.get("entrypoint")}
         elif b'"token_usage_record"' in line or b'"token_count"' in line:
             try:
                 record = json.loads(line)
@@ -178,7 +198,7 @@ def last_usage(path, codex_ttl=1800):
             if isinstance(usage, dict) and isinstance(usage.get("input_tokens"), int):
                 # Codex input_tokens already includes cached input.
                 found = {"tokens": usage["input_tokens"] + (usage.get("output_tokens") or 0),
-                         "at": record.get("timestamp"), "model": None, "usage": {}, "ttl": codex_ttl}
+                         "at": record.get("timestamp"), "model": None, "usage": {}, "ttl": codex_ttl, "codex": True}
     return found
 
 
@@ -379,6 +399,12 @@ def main():
     parser.add_argument("--resend-window", type=int, default=600, help="seconds within which a resend passes")
     parser.add_argument("--ttl", type=int, default=3600, help="cache lifetime when the transcript does not show it")
     parser.add_argument("--codex-ttl", type=int, default=1800, help="cache lifetime for Codex sessions (OpenAI)")
+    parser.add_argument("--codex-auth", type=Path,
+                        help="Codex's auth.json (default: in CODEX_HOME, or ~/.codex): signed in with ChatGPT, the "
+                             "cache is kept and the pause stop never applies to Codex")
+    parser.add_argument("--claude-home", type=Path,
+                        help="Claude Code's configuration folder (default: CLAUDE_CONFIG_DIR, or ~/.claude), whose "
+                             "settings say whether its idle compaction handles a long pause")
     parser.add_argument("--pause-after", type=int, help="treat this many idle seconds as a long pause (live tests)")
     parser.add_argument("--snapshot-chars", type=int, default=6000,
                         help="size of the snapshot of recent exchanges kept with a held prompt (0: none)")
@@ -408,6 +434,11 @@ def main():
         if not info["typed"]:  # a continuation (Qwen: tool result, retry): never stopped, held or advised
             entry["decision"] = "not-a-user-prompt"
             return
+        if RESTART.match(info["prompt"] or ""):
+            # The restart the stop recommends, or a compaction: Claude Code's VS Code extension was seen passing a
+            # /clear through this hook while an idle compaction was pending (2026-10-30). Stopping it would lose it.
+            entry["decision"] = "restart-command"
+            return
         written = bool(transcript) and Path(transcript).is_file()
         record = None
         if written and args.client in clients.OPENCODE_FAMILY:
@@ -425,6 +456,11 @@ def main():
             return
         usage, model, tokens = record["usage"], record["model"], record["tokens"]
         ttl = record["ttl"] or cache_ttl(usage, args.ttl)
+        if record.get("compacted"):
+            entry["compacted"] = True
+        if record.get("codex") and clients.codex_signed_in(args.codex_auth or clients.codex_auth_file()):
+            ttl = None  # signed in with ChatGPT: the conversation's cache does not expire, so no pause costs a rewrite
+            entry["cache"] = "kept"
         own = state_file(clients, args.state, session)
         mine = load_state(own, args.state, session)
         now = time.time()
@@ -435,7 +471,14 @@ def main():
         output = None
         at = clients.instant(record.get("at"))
         idle = now - at if at else 0
-        if args.pause_stop and tokens >= args.pause_min and idle >= (args.pause_after or ttl):
+        compacting = False
+        expired = ttl is not None and idle >= (args.pause_after or ttl)
+        if args.client == "claude" and not record.get("codex") and expired:
+            # Claude Code compacts a long idle conversation itself and applies the summary after this hook: stopping
+            # the prompt would only delay it, and advice would quote a context about to be replaced.
+            entry["idle_compaction"] = clients.claude_idle_compaction(record, info["cwd"], tokens, args.claude_home)
+            compacting = entry["idle_compaction"] == "expected"
+        if args.pause_stop and not compacting and expired and tokens >= args.pause_min:
             entry["idle_seconds"] = round(idle)
             if now - mine.get("stopped", 0) <= args.resend_window:
                 mine.pop("stopped")  # (B): the user chose to continue here
@@ -466,7 +509,9 @@ def main():
                     cost="" if cost is None else COST[args.lang].format(currency=cost[0], amount=cost[1]))
                 output = clients.prompt_output(args.client, block=text)
                 entry["decision"] = "stopped"
-        if output is None and args.no_advice:
+        if compacting:
+            entry["decision"] = "idle-compaction"
+        elif output is None and args.no_advice:
             entry.setdefault("decision", "silent")
         elif output is None:
             level = "insist" if tokens >= args.insist else "advise" if tokens >= args.advise else "none"

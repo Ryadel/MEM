@@ -4,6 +4,29 @@ All notable MEM changes are documented in this file.
 
 MEM uses `MAJOR.MINOR.BUILD` versioning. Version-to-version migration steps are documented in [MEM.upgrade.md](MEM.upgrade.md).
 
+## 1.2.4 - 2026-10-31
+
+### Changed
+
+- **`mem-optimize` 0.3.1**: the long-pause stop after a compaction and on clients that keep their cache.
+  - After `/compact` or auto-compact, the size is the summary's (`compact_boundary`, `postTokens`), not the context
+    it replaced: a compacted conversation is no longer stopped, nor advised, on a size it no longer has.
+  - On Claude Code, a pause its idle compaction will handle is left to it: the summary is applied only after the
+    prompt hook, so stopping that prompt would only delay it. The stop and the advisor stand down when its conditions
+    hold, read from the transcript and the settings files: the one-hour cache, Claude Code 2.1.290 or later,
+    `idleCompaction` and `autoCompactEnabled` not `false`, auto-compaction and feature flags not turned off, the
+    context at or above `CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS`. On the five-minute cache, or with idle compaction off,
+    the stop works as before.
+  - `/clear`, `/new` and `/compact` reaching the prompt hook as text are never stopped: they are the way out the stop
+    recommends (seen in VS Code while an idle compaction was pending).
+  - Codex signed in with ChatGPT is never stopped: OpenAI announced that it keeps the conversation's cache. Only
+    `auth_mode` is read from `auth.json`.
+- `MEM.md` gets version 1.2.4 so that existing installations see the extension update; its text is unchanged.
+
+### Configuration
+
+- No option was added, removed or renamed.
+
 ## 1.2.3 - 2026-10-29
 
 ### Changed
