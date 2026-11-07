@@ -91,7 +91,8 @@ checkout scope) share one format:
 ```
 
 In the host ledger a checkout-scope step is keyed `<step id>@<checkout>`. Every ledger write uses the script in
-`MEM.md`, "Writing shared files": `create` with the skeleton above, then one `row` per result.
+`MEM.md`, "Writing shared files": `create` with the skeleton above, then one `row` per result. New rows are appended,
+so two clones recording steps conflict in git; `MEM.md` gives the rule that resolves it.
 
 ### The run
 
@@ -164,8 +165,9 @@ steps. `mem-toolbox` 1.1.0 ships with it and brings its own `UPGRADE.md`.
 - **after**: core/1.3.0/host-tree
 - **asks**: no
 - **action**: probe, read-only and without installing anything: the shells; Python (`py -0p` on Windows, then
-  `python3`/`python --version` resolved to absolute paths, ignoring App Execution Alias stubs); Node; then each runtime
-  and tool of the `mem-toolbox` catalogue when it is installed. Record what is found with its absolute path, version
+  `python3`/`python --version` resolved to absolute paths; an App Execution Alias under `WindowsApps\` counts only if
+  it answers `--version`, and is never run without arguments); Node; then each runtime and tool of the `mem-toolbox`
+  catalogue when it is installed. Record what is found with its absolute path, version
   and date, and what is not found with the method and date.
 - **verify**: the rows exist and every recorded path answers its version command.
 

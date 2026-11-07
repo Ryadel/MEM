@@ -541,7 +541,7 @@ machine base per OS account per machine**, shared by every project on it and out
 |---|---|---|
 | `project_id` | the project, across people and machines | `MEM.config.md`, committed |
 | host | this machine, for this OS account | the short hostname (`$env:COMPUTERNAME` on Windows, `hostname -s` elsewhere); `machine.md` also records the OS machine id — Windows `MachineGuid`, Linux `/etc/machine-id`, macOS `IOPlatformUUID`, read only — to recognize a renamed host |
-| checkout | one clone or worktree of the project on this machine | `<folder>-<hash>`: the name of the folder containing `KB_ROOT`'s repository, and the first 8 hex digits of the SHA-256 of `KB_ROOT`'s absolute path — resolved, forward slashes, lower-case on Windows |
+| checkout | one clone or worktree of the project on this machine | `<folder>-<hash>`: the name of the repository's top-level folder, and the first 8 hex digits of the SHA-256 of `KB_ROOT`'s absolute path — resolved, forward slashes, lower-case on Windows |
 
 The OS account bounds everything local; the git identity bounds nothing.
 
@@ -579,9 +579,10 @@ not found, each with its date — followed by one `## <tool-id>` section per too
 - A recorded absolute path wins over a failed `PATH` probe; the entry changes only when the recorded path fails too,
   and then in this file, so every project sees the correction.
 - Entries are **observations**, dated, with the method used. `not found` never proves absence: it expires after 30
-  days, and before telling the user a tool is missing the agent **must** probe once more. On Windows, the App
-  Execution Alias stubs in `%LOCALAPPDATA%\Microsoft\WindowsApps\` are not interpreters; `py -0p` lists the real
-  Python installations.
+  days, and before telling the user a tool is missing the agent **must** probe once more. On Windows, an App
+  Execution Alias in `%LOCALAPPDATA%\Microsoft\WindowsApps\` is an interpreter only when a Store installation backs
+  it: trust it only if it answers `--version`, and never run it without arguments, which opens the Store. `py -0p`
+  lists the Python installations.
 - Preferences and refusals — tools root, environment choices, `declined` — persist until the user changes them.
 - Requirements belong to the project. Whether an observed version satisfies one (`outdated`) is decided at use, for
   the project at hand, and is not stored here.
@@ -703,7 +704,9 @@ if cmp -s "$f.tmp-$tok" "$f"; then rm -f "$f.tmp-$tok"; else mv -f "$f.tmp-$tok"
 
 Between clones, git is the boundary: when a merge or rebase conflicts in `MEM.upgrades.md`, resolve it by rule —
 the union of step ids; for an id carrying different results, run the step's `done when` detection again and record
-what it finds; if detection cannot decide, keep `declined`, and show the line to the user.
+what it finds; if detection cannot decide, keep `declined`, and show the line to the user. In the header, `planned`
+keeps the lower version of each component, a component missing on one side counting as not planned — planning again
+is harmless, skipping is not — and `open` is counted again from the merged rows.
 
 ## Host-neutral knowledge base
 
