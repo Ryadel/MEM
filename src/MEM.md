@@ -611,10 +611,13 @@ section by its `## ` heading.
    `~/.mem/`; for `MEM.upgrades.md`, `~/.mem/hosts/<hostname>/locks/<checkout>-MEM.upgrades.lock`, so that no lock
    appears in a working tree. Use absolute paths.
 
-The script first checks the record — present, not empty, matching the mode and the key — and writes nothing
-otherwise. It then takes an **operating-system lock**: on Windows the lock file opened exclusively, on Linux `flock`.
-The operating system releases it when the command ends, however it ends, so a lock never outlives its owner and
-nothing has to be recovered. It re-reads the target, replaces or inserts the record — a section is not replaced by one
+The script first takes a private copy of the record and checks it — present, not empty, matching the mode and the
+key — writing nothing otherwise; from then on it uses only that copy, so the record file changing or disappearing
+while the script waits cannot reach the target. It then takes an **operating-system lock**: on Windows the lock file
+opened exclusively, on Linux `flock`. The operating system releases it when the command ends, however it ends, so a
+lock never outlives its owner and nothing has to be recovered. The `.lock` file itself stays on disk — holding it is
+what counts — and **must not** be deleted: on Linux, deleting it while a writer holds it would let the next writer lock
+a new file beside it. It re-reads the target, replaces or inserts the record — a section is not replaced by one
 with an older `verified` date — writes a temporary file and replaces the target atomically, skipping identical
 content. Where `flock` is missing (macOS), a lock directory stands in; one left behind by a killed command is
 reported and never removed automatically: the user removes it after checking that its owner is gone. A lock the
@@ -666,11 +669,13 @@ POSIX shell (Linux, macOS; `flock` is used where it exists):
 
 ```sh
 f='<file>'; mode='<create|row|section>'; key='<key>'; in='<record file>'; lock="$f.lock"
-first=$(head -n 1 "$in" 2>/dev/null | tr -d '\r'); bad=
+rec=$(mktemp "${TMPDIR:-/tmp}/mem-rec.XXXXXX") || exit 1; trap 'rm -f "$rec"' EXIT
+cp "$in" "$rec" 2>/dev/null || : > "$rec"   # one private copy, validated and then used: later changes to $in cannot reach the target
+first=$(head -n 1 "$rec" | tr -d '\r'); bad=
 case $mode in
   create) [ -n "$first" ] || bad=1 ;;
   row) [ "$(printf '%s\n' "$first" | awk -F'|' '{ k = $2; gsub(/^[ \t]+|[ \t]+$/, "", k); print k }')" = "$key" ] &&
-       [ "$(grep -c . "$in")" -eq 1 ] && [ "${first#|}" != "$first" ] || bad=1 ;;
+       [ "$(grep -c . "$rec")" -eq 1 ] && [ "${first#|}" != "$first" ] || bad=1 ;;
   section) [ "${first#\#\# }" != "$first" ] && [ "$(printf '%s\n' "${first#\#\# }" | sed 's/^[ \t]*//; s/[ \t]*$//')" = "$key" ] || bad=1 ;;
   *) bad=1 ;;
 esac
@@ -678,20 +683,22 @@ esac
 mkdir -p "$(dirname "$f")" "$(dirname "$lock")"; tmp="$f.tmp-$$"
 if command -v flock >/dev/null 2>&1; then   # an OS lock: released when this process ends, however it ends
   exec 9>>"$lock"; flock -w 10 9 || { echo "MEM: $lock is held by another process; nothing written" >&2; exit 1; }
-  trap 'rm -f "$tmp"' EXIT
+  trap 'rm -f "$tmp" "$rec"' EXIT
 else   # no flock (macOS): a lock directory, never removed automatically if left behind
   i=0; until mkdir "$lock.d" 2>/dev/null; do i=$((i+1)); if [ $i -ge 100 ]; then
     echo "MEM: $lock.d is held ($(cat "$lock.d/owner" 2>/dev/null)); if that process is gone, remove $lock.d; nothing written" >&2; exit 1; fi
     sleep 0.1; done
-  echo "pid $$ on $(hostname)" > "$lock.d/owner"; trap 'rm -rf "$lock.d"; rm -f "$tmp"' EXIT; trap 'exit 1' HUP INT TERM
+  echo "pid $$ on $(hostname)" > "$lock.d/owner"; trap 'rm -rf "$lock.d"; rm -f "$tmp" "$rec"' EXIT; trap 'exit 1' HUP INT TERM
 fi
 src=$f; [ -f "$f" ] || src=/dev/null
-awk -v mode="$mode" -v key="$key" -v recf="$in" '
-  BEGIN { while ((getline l < recf) > 0) { sub(/\r$/, "", l); rec = rec (n++ ? "\n" : "") l }
+awk -v mode="$mode" -v key="$key" -v recf="$rec" '
+  BEGIN { while ((st = (getline l < recf)) > 0) { sub(/\r$/, "", l); rec = rec (n++ ? "\n" : "") l }
           sub(/[\n \t]+$/, "", rec)
+          if (st < 0 || rec == "") { print "MEM: the record could not be read; nothing written" > "/dev/stderr"; bad = 1; exit 2 }
           if (match(rec, /verified\**:[ \t]*[^ \t\n]+/)) { vn = substr(rec, RSTART, RLENGTH); sub(/.*:[ \t]*/, "", vn) } }
   { sub(/\r$/, ""); L[NR] = $0 }
   END {
+    if (bad) exit 2
     while (NR > 0 && L[NR] ~ /^[ \t]*$/) NR--
     if (mode == "create") { if (NR) for (i = 1; i <= NR; i++) print L[i]; else print rec; exit }
     if (mode == "row") {
