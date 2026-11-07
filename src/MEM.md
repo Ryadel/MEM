@@ -190,10 +190,12 @@ Every result is recorded in a ledger, so that a step is applied once per scope a
 | `host` | machine, for this OS account | `~/.mem/hosts/<hostname>/upgrades.md` |
 | `checkout` | clone or worktree of the project on this machine | the host ledger, keyed by checkout |
 
-Each ledger opens with a header recording the versions last planned — the core and every installed extension — and
-the number of open steps. At session start the agent **must** read the two headers and build an upgrade plan when the
-core version or any installed extension version differs from them, or when open steps remain; otherwise it reads
-nothing more. Updating `MEM.md` or an extension builds a plan as well.
+Each ledger opens with a `planned` row: the versions last planned, the core and every installed extension. Then one row
+per step result. Pending work is read from the rows themselves, never from a counter that could disagree with them. At
+session start the agent **must** read the two ledgers — they are short — and build an upgrade plan when the core
+version or any installed extension version differs from `planned`, or when any row is `failed`, `deferred` or
+`blocked`; otherwise nothing else is read. Updating `MEM.md` or an extension builds a plan as well, and so does a
+reconciliation that asks for one.
 
 A plan is presented **once**, with the client's question tool when it has one: automatic steps, listed; steps needing
 approval; blocked steps, with their reason; steps already done elsewhere. The user applies all, chooses, or
@@ -600,44 +602,42 @@ the file is never written by this rule.
 ## Writing shared files
 
 Several sessions may write the same file at once. Every write to a file under `~/.mem/`, and to `MEM.upgrades.md`,
-**must** use the script below, run as **one** shell command, so that the lock lives only as long as that command —
-never across tool calls, and never while waiting for the user. Records are keyed: a table row by its first cell, a
+**must** use the script below, run as **one** shell command. Records are keyed: a table row by its first cell, a
 section by its `## ` heading.
 
-1. Write the record to a file of its own (a whole new file's content for `create`).
-2. Run the script with the target file, the mode — `create` (only if the file does not exist), `row` or `section` —
-   the key, the record file, and the lock: `<file>.lock` under `~/.mem/`; for `MEM.upgrades.md`,
-   `~/.mem/hosts/<hostname>/locks/<checkout>-MEM.upgrades.lock`, so that no lock appears in a working tree. Use
-   absolute paths.
+1. Write the record to a file of its own: one row (`row`), a section starting with its heading (`section`), or a whole
+   new file (`create`, written only if the target does not exist).
+2. Run the script with the target file, the mode, the key, the record file, and the lock: `<file>.lock` under
+   `~/.mem/`; for `MEM.upgrades.md`, `~/.mem/hosts/<hostname>/locks/<checkout>-MEM.upgrades.lock`, so that no lock
+   appears in a working tree. Use absolute paths.
 
-The script takes the lock as a directory with an owner token; recovers it only when its owner is on this host and its
-process is verifiably gone; re-reads the file; replaces or inserts the record — a section is not replaced by one with
-an older `verified` date; writes a temporary file and replaces the target atomically, skipping identical content; and
-releases only its own lock. A lock it can neither take nor recover is reported, and the write is retried later in the
-session.
+The script first checks the record — present, not empty, matching the mode and the key — and writes nothing
+otherwise. It then takes an **operating-system lock**: on Windows the lock file opened exclusively, on Linux `flock`.
+The operating system releases it when the command ends, however it ends, so a lock never outlives its owner and
+nothing has to be recovered. It re-reads the target, replaces or inserts the record — a section is not replaced by one
+with an older `verified` date — writes a temporary file and replaces the target atomically, skipping identical
+content. Where `flock` is missing (macOS), a lock directory stands in; one left behind by a killed command is
+reported and never removed automatically: the user removes it after checking that its owner is gone. A lock the
+script cannot take within its wait is reported, and the write is retried later in the session.
 
 PowerShell (Windows PowerShell 5.1 and later):
 
 ```powershell
 $f = '<file>'; $mode = '<create|row|section>'; $key = '<key>'; $in = '<record file>'; $lock = "$f.lock"
-$ErrorActionPreference = 'Stop'; $h = $env:COMPUTERNAME; $tok = [guid]::NewGuid().ToString('N'); $nl = "`n"
-$st = { param($p) try { "$((Get-Process -Id $p -ErrorAction Stop).StartTime.ToUniversalTime().Ticks)" } catch { '' } }
+$ErrorActionPreference = 'Stop'; $nl = "`n"; $k = [regex]::Escape($key)
+$rec = if (Test-Path -LiteralPath $in) { ([IO.File]::ReadAllText($in) -replace "`r`n", $nl).TrimEnd() } else { '' }
+$valid = switch ($mode) { 'create' { $rec -ne '' } 'row' { $rec -match "^\|\s*$k\s*\|" -and -not $rec.Contains($nl) }
+  'section' { $rec -match "^##\s+$k\s*(\n|$)" } default { $false } }
+if (-not $valid) { throw "MEM: '$in' is missing, empty or not a $mode record for '$key'; nothing written" }
 New-Item -ItemType Directory -Force (Split-Path $f), (Split-Path $lock) | Out-Null
-$got = $false
-for ($i = 0; $i -lt 50 -and -not $got; $i++) {
-  try { New-Item -ItemType Directory $lock -ErrorAction Stop | Out-Null
-        [IO.File]::WriteAllText("$lock/owner", "$tok $h $PID $(& $st $PID)"); $got = $true; break } catch {}
-  $o = "$(Get-Content "$lock/owner" -ErrorAction SilentlyContinue)" -split ' '
-  if ($o.Count -eq 4 -and $o[1] -eq $h -and (& $st ([int]$o[2])) -ne $o[3]) {
-    try { Rename-Item $lock "$lock.dead-$tok"; Remove-Item "$lock.dead-$tok" -Recurse -Force } catch {}
-  } else { Start-Sleep -Milliseconds 100 }
-}
-if (-not $got) { throw "MEM: $lock is held; write not done" }
+$h = $null   # an exclusive handle: the OS releases it when this process ends, however it ends
+for ($i = 0; $i -lt 100 -and -not $h; $i++) {
+  try { $h = [IO.File]::Open($lock, 'OpenOrCreate', 'ReadWrite', 'None') } catch [IO.IOException] { Start-Sleep -Milliseconds 100 } }
+if (-not $h) { throw "MEM: $lock is held by another process; nothing written" }
+$tmp = "$f.tmp-$([guid]::NewGuid().ToString('N'))"
 try {
-  $old = if (Test-Path $f) { [IO.File]::ReadAllText($f) -replace "`r`n", $nl } else { '' }
-  $rec = ([IO.File]::ReadAllText($in) -replace "`r`n", $nl).TrimEnd()
+  $old = if (Test-Path -LiteralPath $f) { [IO.File]::ReadAllText($f) -replace "`r`n", $nl } else { '' }
   $L = New-Object Collections.Generic.List[string]; if ($old) { $L.AddRange([string[]]($old.TrimEnd() -split $nl)) }
-  $k = [regex]::Escape($key)
   if ($mode -eq 'create') { if (-not $old) { $L.AddRange([string[]]($rec -split $nl)) } }
   elseif ($mode -eq 'row') {
     $r = -1; $last = -1
@@ -653,33 +653,42 @@ try {
         $new = [string[]]($rec -split $nl); if ($e -lt $L.Count) { $new += '' }
         $L.RemoveRange($s, $e - $s); $L.InsertRange($s, [string[]]$new) } } }
   $res = ($L -join $nl).TrimEnd() + $nl
-  if ($res -cne $old) { $tmp = "$f.tmp-$tok"; [IO.File]::WriteAllText($tmp, $res, (New-Object Text.UTF8Encoding $false))
-    if (Test-Path $f) { [IO.File]::Replace($tmp, $f, [NullString]::Value) } else { [IO.File]::Move($tmp, $f) } }
-} finally {
-  if ("$(Get-Content "$lock/owner" -ErrorAction SilentlyContinue)" -like "$tok *") { Remove-Item $lock -Recurse -Force }
-  Remove-Item $in -ErrorAction SilentlyContinue
-}
+  if ($res -cne $old) {
+    [IO.File]::WriteAllText($tmp, $res, (New-Object Text.UTF8Encoding $false))
+    for ($r = 0; ; $r++) {   # a reader may hold the target for a moment
+      try { if (Test-Path -LiteralPath $f) { [IO.File]::Replace($tmp, $f, [NullString]::Value) } else { [IO.File]::Move($tmp, $f) }; break }
+      catch { if ($r -ge 30) { throw }; Start-Sleep -Milliseconds 50 } } }
+  Remove-Item -LiteralPath $in -ErrorAction SilentlyContinue
+} finally { $h.Close(); Remove-Item -LiteralPath $tmp -ErrorAction SilentlyContinue }
 ```
 
-POSIX shell (Linux, macOS):
+POSIX shell (Linux, macOS; `flock` is used where it exists):
 
 ```sh
 f='<file>'; mode='<create|row|section>'; key='<key>'; in='<record file>'; lock="$f.lock"
-h=$(hostname -s 2>/dev/null || hostname); tok=$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')
-st() { ps -o lstart= -p "$1" 2>/dev/null | tr -s ' ' '_'; }
-mkdir -p "$(dirname "$f")" "$(dirname "$lock")"; got=; i=0
-while [ $i -lt 50 ]; do
-  if mkdir "$lock" 2>/dev/null; then echo "$tok $h $$ $(st $$)" > "$lock/owner"; got=1; break; fi
-  set -- $(cat "$lock/owner" 2>/dev/null)
-  if [ $# -eq 4 ] && [ "$2" = "$h" ] && [ "$(st "$3")" != "$4" ]; then
-    mv "$lock" "$lock.dead-$tok" 2>/dev/null && rm -rf "$lock.dead-$tok"
-  else sleep 0.1; fi; i=$((i+1))
-done
-[ -n "$got" ] || { echo "MEM: $lock is held; write not done" >&2; exit 1; }
-trap '[ "$(cut -d" " -f1 "$lock/owner" 2>/dev/null)" = "$tok" ] && rm -rf "$lock"; rm -f "$in" "$f.tmp-$tok"' EXIT
+first=$(head -n 1 "$in" 2>/dev/null | tr -d '\r'); bad=
+case $mode in
+  create) [ -n "$first" ] || bad=1 ;;
+  row) [ "$(printf '%s\n' "$first" | awk -F'|' '{ k = $2; gsub(/^[ \t]+|[ \t]+$/, "", k); print k }')" = "$key" ] &&
+       [ "$(grep -c . "$in")" -eq 1 ] && [ "${first#|}" != "$first" ] || bad=1 ;;
+  section) [ "${first#\#\# }" != "$first" ] && [ "$(printf '%s\n' "${first#\#\# }" | sed 's/^[ \t]*//; s/[ \t]*$//')" = "$key" ] || bad=1 ;;
+  *) bad=1 ;;
+esac
+[ -z "$bad" ] || { echo "MEM: '$in' is missing, empty or not a $mode record for '$key'; nothing written" >&2; exit 1; }
+mkdir -p "$(dirname "$f")" "$(dirname "$lock")"; tmp="$f.tmp-$$"
+if command -v flock >/dev/null 2>&1; then   # an OS lock: released when this process ends, however it ends
+  exec 9>>"$lock"; flock -w 10 9 || { echo "MEM: $lock is held by another process; nothing written" >&2; exit 1; }
+  trap 'rm -f "$tmp"' EXIT
+else   # no flock (macOS): a lock directory, never removed automatically if left behind
+  i=0; until mkdir "$lock.d" 2>/dev/null; do i=$((i+1)); if [ $i -ge 100 ]; then
+    echo "MEM: $lock.d is held ($(cat "$lock.d/owner" 2>/dev/null)); if that process is gone, remove $lock.d; nothing written" >&2; exit 1; fi
+    sleep 0.1; done
+  echo "pid $$ on $(hostname)" > "$lock.d/owner"; trap 'rm -rf "$lock.d"; rm -f "$tmp"' EXIT; trap 'exit 1' HUP INT TERM
+fi
 src=$f; [ -f "$f" ] || src=/dev/null
 awk -v mode="$mode" -v key="$key" -v recf="$in" '
   BEGIN { while ((getline l < recf) > 0) { sub(/\r$/, "", l); rec = rec (n++ ? "\n" : "") l }
+          sub(/[\n \t]+$/, "", rec)
           if (match(rec, /verified\**:[ \t]*[^ \t\n]+/)) { vn = substr(rec, RSTART, RLENGTH); sub(/.*:[ \t]*/, "", vn) } }
   { sub(/\r$/, ""); L[NR] = $0 }
   END {
@@ -698,15 +707,15 @@ awk -v mode="$mode" -v key="$key" -v recf="$in" '
     for (i = 1; i < s; i++) print L[i]
     if (vo != "" && vn != "" && vo > vn) { for (i = s; i < e; i++) print L[i] } else { print rec; if (e <= NR) print "" }
     for (i = e; i <= NR; i++) print L[i] }
-' "$src" > "$f.tmp-$tok" || exit 1
-if cmp -s "$f.tmp-$tok" "$f"; then rm -f "$f.tmp-$tok"; else mv -f "$f.tmp-$tok" "$f"; fi
+' "$src" > "$tmp" || exit 1
+if cmp -s "$tmp" "$f"; then rm -f "$tmp"; else mv -f "$tmp" "$f"; fi; rm -f "$in"
 ```
 
 Between clones, git is the boundary: when a merge or rebase conflicts in `MEM.upgrades.md`, resolve it by rule —
 the union of step ids; for an id carrying different results, run the step's `done when` detection again and record
-what it finds; if detection cannot decide, keep `declined`, and show the line to the user. In the header, `planned`
-keeps the lower version of each component, a component missing on one side counting as not planned — planning again
-is harmless, skipping is not — and `open` is counted again from the merged rows.
+what it finds; if detection cannot decide, keep `declined`, and show the line to the user. `planned` keeps the
+lower version of each component, a component missing on one side counting as not planned: planning again is
+harmless, skipping is not.
 
 ## Host-neutral knowledge base
 
@@ -847,7 +856,7 @@ At session start, the agent **should** read:
 3. `MEM.index.md`, if present;
 4. `MEM.project.md`, if present;
 5. `extensions/EXT.md`, if present and `extensions_enabled` is true — it is the routing table for reserved commands and must be known before one appears;
-6. the machine summary and the headers of the two upgrade ledgers, when they exist — see "Machine base" and "Upgrade steps and ledgers";
+6. the machine summary and the two upgrade ledgers, when they exist — see "Machine base" and "Upgrade steps and ledgers";
 7. relevant files under `architecture/`, `docs/`, `conventions/`, `decisions/`, `tasks/`, `troubleshooting/`, or `extensions/` based on the user's request.
 
 Before non-trivial changes, additionally read the relevant KB pages and inspect the source code. The code is implementation truth; the KB is the explanation layer.

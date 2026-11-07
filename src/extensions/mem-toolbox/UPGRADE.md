@@ -53,10 +53,12 @@ will never run the upgrade — retired, sold — is removed from any machine onl
 - **done when**: it is a one-line pointer to `~/.mem/hosts/<hostname>/machine.md`
 - **asks**: yes
 - **blocked if**: any of these holds — the file changed in the last 30 days other than by the core's merge (an older
-  agent still writes it); `~/.mem/hosts/<hostname>/projects.md` shows a checkout below `mem-toolbox` 1.1.0; no scan has
-  been run. The scan is run on request only: the user names the folders, the agent lists every `MEM.config.md` below
-  them with its `mem-toolbox` version. `projects.md` lists observed checkouts only, so it alone never authorizes this
-  step
+  agent still writes it); no scan has been run since that last change; `~/.mem/hosts/<hostname>/projects.md` shows any
+  checkout below `mem-toolbox` 1.1.0, **including those the scan found**. The scan is run on request only: the user
+  names the folders, the agent finds every `MEM.config.md` below them and adds each knowledge base to `projects.md`
+  with its versions, marked `scan` and dated — so a knowledge base the scan finds on 1.0.x keeps this step blocked
+  until it is upgraded, whether or not a session ever opened it. `projects.md` without a scan lists observed checkouts
+  only, so it alone never authorizes this step
 - **action**: after a final merge into the machine file, replace the legacy file with a pointer. Say that knowledge
   bases outside the scanned folders, if any, will no longer see the machine's facts until they are upgraded.
 - **verify**: the legacy file is a pointer, and every fact it held is in the machine file (compared by key).

@@ -20,16 +20,19 @@ MEM uses `MAJOR.MINOR.BUILD` versioning. Version-to-version migration steps are 
 - **Three identities**: `project_id` (committed, the same for everyone), the host (hostname within one user account,
   with the OS machine id), the checkout (one clone or worktree). Each computer writes only its own tree, so `~/.mem/`
   can be synced between one person's machines.
-- **Writing shared files**: one shell command per write — PowerShell and POSIX scripts in `MEM.md` — with a lock
-  that has an owner token, is recovered only from a dead owner on the same host, and is released only by its owner;
-  re-read, merge by key, atomic replace.
+- **Writing shared files**: one shell command per write — PowerShell and POSIX scripts in `MEM.md`. The record is
+  checked first (nothing is written for a missing, empty or mismatched one); the lock is the operating system's (an
+  exclusively opened file on Windows, `flock` on Linux), released when the command ends however it ends, so nothing is
+  ever recovered; re-read, merge by key, atomic replace. Without `flock` (macOS) a lock directory left by a killed
+  command is reported, never removed automatically.
 - **Host-neutral knowledge base**: operative pages carry no machine paths, hostnames, usernames or availability
   claims; `MEM LINT` reports what slipped in.
 - **Upgrade steps and ledgers**: from this release a hop in `MEM.upgrade.md` — and in an extension's `UPGRADE.md` — is
   a list of idempotent steps scoped to the project, the machine or one checkout, recorded in `MEM.upgrades.md`
   (committed) or the machine's ledger, so that each runs once per scope; failed, postponed and blocked steps stay
-  pending, refusals are remembered, one confirmation per upgrade, an interrupted run resumes. Session start compares
-  the ledger headers with the core and extension versions.
+  pending — read from the ledger rows, whatever the version — refusals are remembered, one confirmation per upgrade,
+  an interrupted run resumes. Session start reads the two short ledgers and compares `planned` with the core and
+  extension versions.
 - `MEM STATUS` reports open upgrade steps and the checkouts on this computer that are behind.
 
 ### Changed

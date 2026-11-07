@@ -448,7 +448,7 @@ An update can require more than a new `MEM.md`: moving a file, adding a setting,
 
 What each step did is recorded: in `MEM.upgrades.md`, committed, for project steps — so a colleague who pulls an upgraded project does not repeat them — and in the machine base for machine steps, so that a machine with fifty projects runs a machine step once, not fifty times. A step you postpone or that fails stays pending; a step you refuse is remembered and not proposed again.
 
-You see one plan per upgrade, with one confirmation: what runs on its own (only ever inside `~/.mem/`), what needs your approval, what is blocked and why. At the start of a session the agent compares two short headers with the installed versions and reads nothing more when nothing changed.
+You see one plan per upgrade, with one confirmation: what runs on its own (only ever inside `~/.mem/`), what needs your approval, what is blocked and why. At the start of a session the agent reads the two short records, compares them with the installed versions, and reads nothing more when nothing changed and nothing is pending.
 
 ## Machine base
 
@@ -464,7 +464,7 @@ Which runtimes and tools a computer has, and where, is not project knowledge: it
 
 Every project reads the same `machine.md`, so they all agree on whether Python or pandoc is there, and a correction made in one is seen by all. It is read through `MEM.md`, not through your agent's own settings, and nothing else is required: no hooks, no environment variables, no setup — it is created the first time it is needed. Entries are observations with a date: "not found" is checked again before the agent tells you a tool is missing, and an old observation never hides a later install.
 
-Because each computer writes only its own `hosts/<hostname>/`, you may sync `~/.mem/` between your own machines; each keeps its own facts. Several agents can write at once: every write takes a short lock and merges, so none is lost. The knowledge base itself stays free of machine paths, hostnames and usernames — `MEM LINT` points out the ones that slipped in — and each project carries a `project_id`, the same for everyone, that ties local data to it.
+Because each computer writes only its own `hosts/<hostname>/`, you may sync `~/.mem/` between your own machines; each keeps its own facts. Several agents can write at once: every write takes a lock that the operating system releases when the write ends — even if the agent is killed — and merges, so none is lost. The knowledge base itself stays free of machine paths, hostnames and usernames — `MEM LINT` points out the ones that slipped in — and each project carries a `project_id`, the same for everyone, that ties local data to it.
 
 ## Extensions
 

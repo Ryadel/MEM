@@ -208,6 +208,8 @@ changed since its last import, merge it into the machine file: the tools root an
 rows when none exist yet, each tool section under the same-key rule (an older observation never replaces a newer one),
 `outdated` read as `confirmed`, `unavailable` as `not found`, the old `source control` field dropped. No question is
 asked again for anything it answers. A copy for **another** machine is never imported here: that machine imports it.
+After an import, ask for an upgrade plan (see `MEM.md`, "Upgrade steps and ledgers"), so that the copy's
+`remove-host-copy` instance is evaluated even when no version changed.
 
 `extensions_mem_toolbox_kb_copy` is retired: a mirror of machine facts in a repository is precisely what goes stale and
 misleads other machines. When it is still set, `mem-toolbox/1.1.0/drop-kb-copy` removes it; until then it is ignored.

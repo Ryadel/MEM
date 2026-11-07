@@ -83,7 +83,6 @@ checkout scope) share one format:
 | key | value |
 |---|---|
 | planned | core 1.3.0, mem-toolbox 1.1.0 |
-| open | 0 |
 
 | step | result | date |
 |---|---|---|
@@ -96,14 +95,17 @@ so two clones recording steps conflict in git; `MEM.md` gives the rule that reso
 
 ### The run
 
-1. **Plan** — collect the steps of every hop between the versions in the ledger headers and the installed ones, core
-   and extensions; drop `done` and `declined`; evaluate `applies if` and `blocked if`; order by `after`.
+1. **Plan** — the candidates are: every step of every hop between the `planned` versions and the installed ones, core
+   and extensions; **every step recorded `failed`, `deferred` or `blocked`, whatever its version**; and, when a
+   reconciliation asked for the plan, every instance of that extension's parameterised steps with no row yet. Drop
+   `done` and `declined`; evaluate `applies if` and `blocked if`; order by `after`.
 2. **Confirm once** — automatic steps, steps needing approval, blocked steps with their reason, steps done elsewhere;
    apply all, choose, or later. Values for `asks: answer` steps are asked in the same round.
 3. **Apply** in order; **verify** each; **record** each result as soon as it is known, so that an interrupted run
    resumes from the ledgers.
-4. **Close** — set `planned` to the installed versions and `open` to the number of `failed`, `deferred` and `blocked`
-   steps, in both ledgers.
+4. **Close** — set `planned` to the installed versions in both ledgers, last. Pending rows keep triggering a plan on
+   their own, so nothing else has to be counted; a run interrupted before this point is planned again from the old
+   versions, and its recorded results are skipped.
 5. **Report** — the daily log line defined in `MEM.md`.
 
 ## 1.2.4 -> 1.3.0
