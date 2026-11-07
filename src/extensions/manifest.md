@@ -154,7 +154,7 @@ data survive every update. The machine file is outside the knowledge base and is
 
 ### mem-workspace
 
-- **version**: 1.0.0
+- **version**: 1.0.1
 - **provides**: `WORKSPACE` (subcommands `CHECK`, `INIT`), and routing of files and commits across the
   repositories of a workspace
 - **precedence**: base

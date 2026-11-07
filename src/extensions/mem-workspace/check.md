@@ -53,6 +53,7 @@ folder or the dev solution is their job: they are not hits. Comments in the same
 | 12 | Wiki pages linked by absolute URL | see below | warning |
 | 13 | Visibility as recorded | not verifiable offline | info, always |
 | 14 | Adapter checks | per the adapter named in `custom/workspace.md` | as the adapter says |
+| 15 | Published repositories carry no machine facts | `git -C <folder> grep -n -I -i -F --untracked -e <machine pattern>...` in `<public>` and `<wiki>` is empty | warning |
 
 Notes on the checks that need judgement:
 
@@ -68,6 +69,12 @@ Notes on the checks that need judgement:
   this line is the second layer, never the privacy mechanism.
 - **11** — documentation is publishable. If a wiki folder ever appears inside the public repository it should show
   up in `git status`, not go silent.
+- **15** — the machine patterns are this machine's: its short hostname, the user's name, and the home directory as an
+  absolute path in both separator styles (`C:\Users\<name>`, `C:/Users/<name>`, `/home/<name>`, `/Users/<name>`). A
+  published file naming them exposes a machine and an account, and is wrong on every other machine — see `MEM.md`,
+  "Host-neutral knowledge base". Report each hit with its file and line, and propose a host-neutral form: a
+  repository-relative path, an environment-relative one, or a parameter. The knowledge base itself is covered by
+  `MEM LINT`.
 - **12** — only with a `wiki` role. List the page names with `git -C <wiki> ls-files "*.md"`, then search
   `<public>` for relative links to them (`](<Page>.md`, `](<Page>)`). A wiki is a separate repository, so a
   relative link to it is already broken on the public site.
@@ -77,7 +84,7 @@ Skip a check only when its role does not exist, and report it as `n/a`.
 ## Report
 
 ```markdown
-> MEM WORKSPACE CHECK: active (mem-workspace 1.0.0)
+> MEM WORKSPACE CHECK: active (mem-workspace 1.0.1)
 
 | # | Check | Result | Finding |
 |---|---|---|---|

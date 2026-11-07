@@ -1,6 +1,6 @@
 # Extension: `mem-workspace`
 
-- **version**: 1.0.0
+- **version**: 1.0.1
 - **provides**: `WORKSPACE`, and routing of files and commits across the repositories of a workspace
 - **subcommands**: `CHECK`, `INIT` — closed set
 - **bootstrap entry**: `custom/workspace.md` — see "The workspace file"

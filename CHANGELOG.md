@@ -39,6 +39,8 @@ MEM uses `MAJOR.MINOR.BUILD` versioning. Version-to-version migration steps are 
   optional and asks only the tools root and environments; host copies left in knowledge bases are imported by their
   own machine and removed only when nothing reads them; the legacy file stays live until an explicit check retires
   it. New `UPGRADE.md`.
+- **`mem-workspace` 1.0.1**: `MEM WORKSPACE CHECK` gains check 15 — the published repositories (public and wiki)
+  must not name this machine's hostname, user or home directory.
 - Applying `MEM.upgrade.md` after an update is now required (was recommended).
 - Initialization proposes a `project_id`.
 
