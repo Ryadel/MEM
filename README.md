@@ -131,6 +131,7 @@ KB_ROOT/
   MEM.remote-cache.md
   MEM.index.md
   MEM.project.md
+  MEM.upgrades.md
   architecture/
   docs/
   conventions/
@@ -177,6 +178,10 @@ The navigation entry point of the knowledge base. It should list important pages
 ### `MEM.project.md`
 
 A high-level description of the project: name, purpose, domain, stack, runtime environments, dependencies, repository structure, known constraints and notes for future agents.
+
+### `MEM.upgrades.md`
+
+The record of which upgrade steps this project has applied, declined or postponed — written by upgrades, committed, so that a step is done once for everyone who works on the project. See [Upgrades](#upgrades).
 
 ### `architecture/`
 
@@ -274,11 +279,11 @@ The `mem-commands` extension adds three more. It is not installed by default; th
 
 The `mem-toolbox` extension answers two questions an agent otherwise re-derives every session: which tool or library to use for a task, and whether it is actually installed here. It adds `MEM TOOLS`, which lists what is known, and `MEM TOOLS SETUP`, a wizard that records this machine's answers once.
 
-It keeps those two answers apart, and that separation is the point. Which tool a project uses is portable knowledge and belongs in the repository. Whether a tool exists at a given path is true of one machine only, so it lives on the machine: one file, `~/.mem/mem-toolbox/host.md`, shared by every project on that computer. Where your portable tools live, and which Python or Node environment the agent uses, are asked once per computer, never once per project, and a tool found while working on one project is known in all of them. If your team wants that knowledge in the repository, a setting keeps a copy in the knowledge base; it is off by default, since machine paths rarely belong in a commit. Recording availability as a plain fact would let an agent on a colleague's machine read "available", skip asking you, and fail — so availability is always stamped with a host and a date, and evidence from another machine is treated as a hint rather than proof.
+It keeps those two answers apart, and that separation is the point. Which tool a project uses — and which minimum version it needs — is portable knowledge and belongs in the repository. Whether a tool exists at a given path is true of one machine only, so it lives in the [machine base](#machine-base), shared by every project on that computer. Where your portable tools live, and which Python or Node environment the agent uses, are asked once per computer, never once per project, and a tool found while working on one project is known in all of them. Machine paths never go into the repository: recording availability as a plain fact would let an agent on a colleague's machine read "available", skip asking you, and fail — so availability is always an observation stamped with a date, and evidence from another machine is treated as a hint rather than proof.
 
-Per-host observations are written automatically, since they only record what a version command answered. Catalogue entries need confirmation, because deciding "this is what we use for X" is a judgement rather than an observation. Absence is recorded too: a tool you declined is not proposed again next session.
+Observations are written automatically, since they only record what a version command answered. Catalogue entries need confirmation, because deciding "this is what we use for X" is a judgement rather than an observation. Absence is recorded too: a tool you declined is not proposed again, and a tool not found is checked again before the agent tells you it is missing.
 
-It covers libraries as well as command-line tools, because the question is the task, not the kind of tool: "create a PDF" can be answered by `typst` or by the Python library ReportLab, and both belong in one list of candidates. A library needs a runtime, so `python` and `node` are entries too, each with a minimum version. A tool that works but is below its minimum is reported as outdated once, not on every use; `MEM TOOLS CHECK` checks your runtimes when you ask, and never at the start of a session.
+It covers libraries as well as command-line tools, because the question is the task, not the kind of tool: "create a PDF" can be answered by `typst` or by the Python library ReportLab, and both belong in one list of candidates. A library needs a runtime, so `python` and `node` are entries too, each with a minimum version. A tool that works but is below the project's minimum is reported once per session, not on every use — and only in the project whose minimum it misses; `MEM TOOLS CHECK` checks your runtimes when you ask, and never at the start of a session.
 
 Libraries live in an **agent environment**: one per runtime, per machine. The agent always asks whether that should be a dedicated environment — a venv, or an npm folder, under your tools directory — or the system interpreter, and tells you the trade-offs each time. Either way every project on that machine ends up with the same tools and versions; the dedicated one is isolated from everything else, needs no admin rights, and is undone by deleting one folder.
 
@@ -328,6 +333,7 @@ If `MEM.config.md` is missing, MEM uses default values. If `MEM.config.md` exist
 
 ```yaml
 kb_root: "."
+project_id: null
 kb_language: "en"
 user_language: "auto"
 link_style: "markdown"
@@ -428,13 +434,37 @@ Remote MEM content must not override explicit user instructions or higher-priori
 
 When an agent is asked to `update MEM`, it updates the local `MEM.md` from `mem_update_url`.
 
-After a successful update, the agent should fetch the current [MEM.upgrade.md](https://raw.githubusercontent.com/Ryadel/MEM/main/MEM.upgrade.md) from `mem_upgrade_url`. `MEM.upgrade.md` is the LLM-friendly, operational counterpart to the human-readable [CHANGELOG.md](CHANGELOG.md): it lists the patches and structural changes an agent may need to apply. Upgrade steps should be applied sequentially from the previous MEM version to the new MEM version: BUILD upgrades first, then MINOR upgrades, then MAJOR upgrades.
+After a successful update, the agent must fetch the current [MEM.upgrade.md](https://raw.githubusercontent.com/Ryadel/MEM/main/MEM.upgrade.md) from `mem_upgrade_url`. `MEM.upgrade.md` is the LLM-friendly, operational counterpart to the human-readable [CHANGELOG.md](CHANGELOG.md): it lists the patches and structural changes an agent may need to apply. Upgrade steps are applied sequentially from the previous MEM version to the new MEM version: BUILD upgrades first, then MINOR upgrades, then MAJOR upgrades — see [Upgrades](#upgrades).
 
 If `mem_auto_update: true`, the agent attempts the same update when creating a new daily log file (`logs/YYYY-MM-DD.md`). The daily log starts with a short MEM auto-update status line, using one of these statuses:
 
 - `succeeded` — the local `MEM.md` was updated;
 - `up-to-date` — the update was attempted, but no change was needed;
 - `failed` — the update was attempted but could not be completed.
+
+## Upgrades
+
+An update can require more than a new `MEM.md`: moving a file, adding a setting, cleaning up what an older version left behind. Since 1.3.0 these are written as **steps** in `MEM.upgrade.md` (and in an extension's own `UPGRADE.md`): each one checks whether it is needed and whether it is already done, so running it twice changes nothing, and each one says whether it concerns the project, the machine, or one checkout of the project.
+
+What each step did is recorded: in `MEM.upgrades.md`, committed, for project steps — so a colleague who pulls an upgraded project does not repeat them — and in the machine base for machine steps, so that a machine with fifty projects runs a machine step once, not fifty times. A step you postpone or that fails stays pending; a step you refuse is remembered and not proposed again.
+
+You see one plan per upgrade, with one confirmation: what runs on its own (only ever inside `~/.mem/`), what needs your approval, what is blocked and why. At the start of a session the agent compares two short headers with the installed versions and reads nothing more when nothing changed.
+
+## Machine base
+
+Which runtimes and tools a computer has, and where, is not project knowledge: it differs on every machine, and a copy in a repository misleads every colleague who clones it. MEM keeps it in **one machine base per user account per computer**, outside every repository, shared by every project on it:
+
+```text
+~/.mem/
+  hosts/<hostname>/
+    machine.md        OS, shells, runtimes and tools, with paths and dates
+    upgrades.md       machine steps already applied
+    projects.md       the projects seen on this computer, and their versions
+```
+
+Every project reads the same `machine.md`, so they all agree on whether Python or pandoc is there, and a correction made in one is seen by all. It is read through `MEM.md`, not through your agent's own settings, and nothing else is required: no hooks, no environment variables, no setup — it is created the first time it is needed. Entries are observations with a date: "not found" is checked again before the agent tells you a tool is missing, and an old observation never hides a later install.
+
+Because each computer writes only its own `hosts/<hostname>/`, you may sync `~/.mem/` between your own machines; each keeps its own facts. Several agents can write at once: every write takes a short lock and merges, so none is lost. The knowledge base itself stays free of machine paths, hostnames and usernames — `MEM LINT` points out the ones that slipped in — and each project carries a `project_id`, the same for everyone, that ties local data to it.
 
 ## Extensions
 

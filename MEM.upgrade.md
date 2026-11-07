@@ -22,6 +22,182 @@ Before applying an upgrade, identify the current local MEM version and the targe
 1.0.0 through 1.0.2. A knowledge base on a base earlier than 1.0.3 should be re-initialized against the current
 MEM version rather than migrated step by step.
 
+## Running an upgrade
+
+Hops up to `1.2.3 -> 1.2.4` are prose: apply their **Required actions** as written. From `1.2.4 -> 1.3.0` a hop is a
+list of **steps**, and an extension's `UPGRADE.md` uses the same format. `MEM.md`, "Upgrade steps and ledgers",
+defines the ledgers and when a plan is built; this section defines the steps and the run. Continuous duties — keeping
+this checkout's row in `projects.md`, merging the legacy machine file — are not steps: `MEM.md`, "Machine base",
+defines them.
+
+### Steps
+
+Each step is a heading that begins with its id, followed by bold-label fields:
+
+```markdown
+#### core/1.3.0/example — What the step does
+
+- **scope**: host
+- **applies if**: the condition under which the step concerns this KB or machine
+- **done when**: the state that proves it applied
+- **after**: core/1.3.0/other-step
+- **asks**: no
+- **blocked if**: a condition that suspends it, with the reason to show
+- **action**: what to do.
+- **verify**: the check that proves it worked.
+```
+
+| Field | Meaning |
+|---|---|
+| id | `<owner>/<version>/<step>[/<param>]` — owner `core` or an extension id. Stable: it is the ledger key. `<param>` makes one instance per source, such as one per host |
+| scope | `project` · `host` · `checkout` — selects the ledger, see `MEM.md` |
+| applies if | False → the result is `not-applicable` |
+| done when | Every step is **idempotent**: run on a done state, it changes nothing |
+| after | Steps that must be `done` first; otherwise this one stays pending |
+| asks | `no` — listed in the plan and run with "apply all"; `yes` — needs the user's approval in the plan; `answer` — needs a value, asked in the same round |
+| blocked if | Optional. While true, the step is `blocked` and shown with its reason |
+| action / verify | What to do, and the check that proves it. A failed check makes the result `failed` |
+
+### Results
+
+| Result | Meaning | Pending |
+|---|---|---|
+| `done` | applied **and verified** | no — skipped from then on |
+| `failed: <reason>` | attempted, not verified | **yes**, even at an unchanged version |
+| `deferred` | the user chose "later" | **yes**; offered at most once per session |
+| `declined` | the user refused | no — a decision, kept. The change is **not** applied, so the steps after it are not applied either; offered again only on request |
+| `blocked: <reason>` | `blocked if` holds | **yes**; re-checked at every plan |
+| `not-applicable` | `applies if` is false | re-evaluated at every plan |
+
+A hop is complete for a scope when each of its steps is `done`, `declined` or currently `not-applicable`. A complete
+hop is not read again.
+
+### Ledgers
+
+`MEM.upgrades.md` (project scope, in `KB_ROOT`, committed) and `~/.mem/hosts/<hostname>/upgrades.md` (host and
+checkout scope) share one format:
+
+```markdown
+# MEM upgrades
+
+| key | value |
+|---|---|
+| planned | core 1.3.0, mem-toolbox 1.1.0 |
+| open | 0 |
+
+| step | result | date |
+|---|---|---|
+| core/1.3.0/project-id | done | 2026-11-08 |
+```
+
+In the host ledger a checkout-scope step is keyed `<step id>@<checkout>`. Every ledger write uses the script in
+`MEM.md`, "Writing shared files": `create` with the skeleton above, then one `row` per result.
+
+### The run
+
+1. **Plan** — collect the steps of every hop between the versions in the ledger headers and the installed ones, core
+   and extensions; drop `done` and `declined`; evaluate `applies if` and `blocked if`; order by `after`.
+2. **Confirm once** — automatic steps, steps needing approval, blocked steps with their reason, steps done elsewhere;
+   apply all, choose, or later. Values for `asks: answer` steps are asked in the same round.
+3. **Apply** in order; **verify** each; **record** each result as soon as it is known, so that an interrupted run
+   resumes from the ledgers.
+4. **Close** — set `planned` to the installed versions and `open` to the number of `failed`, `deferred` and `blocked`
+   steps, in both ledgers.
+5. **Report** — the daily log line defined in `MEM.md`.
+
+## 1.2.4 -> 1.3.0
+
+### Summary
+
+"User-host scopes and shared tooling". Facts about the machine move to **one machine base per OS account per
+machine**, `~/.mem/hosts/<hostname>/`, which every MEM reads through the core — so all the projects on a machine agree
+on which runtimes and tools exist and where. Committed KB content becomes host-neutral. Upgrades become scoped,
+idempotent steps recorded in ledgers, applied once per project, machine or checkout. This is the first hop written as
+steps. `mem-toolbox` 1.1.0 ships with it and brings its own `UPGRADE.md`.
+
+### Required actions
+
+- Replace `MEM.md` with version 1.3.0, then run the steps below as described in "Running an upgrade".
+- The extension version check reports `mem-toolbox` 1.1.0 where it is installed. Propose the update as usual; once it
+  is applied, its `UPGRADE.md` steps join the plan.
+
+### Configuration changes
+
+- Added: `project_id` (default `null`) — set by `core/1.3.0/project-id`.
+- `extensions_mem_toolbox_kb_copy` is retired by `mem-toolbox` 1.1.0 — see its `UPGRADE.md`.
+
+### Steps
+
+#### core/1.3.0/mem-readme — Describe the per-user folder
+
+- **scope**: host
+- **applies if**: `~/.mem/README.md` does not exist
+- **done when**: it exists
+- **asks**: no
+- **action**: write it with the `create` mode: "This folder holds MEM's machine base: one `hosts/<hostname>/` per
+  machine, written only by that machine, and extensions' runtime state in `<extension-id>/` (never to be synced). It is
+  in no repository. See the "Machine base" section of `MEM.md`."
+- **verify**: the file exists and names `hosts/`.
+
+#### core/1.3.0/host-tree — Create this machine's tree
+
+- **scope**: host
+- **applies if**: `~/.mem/hosts/<hostname>/machine.md` does not exist
+- **done when**: it exists and its summary names this host and its machine id; with a legacy file, every imported
+  fact is in it
+- **after**: core/1.3.0/mem-readme
+- **asks**: no
+- **action**: create `~/.mem/hosts/<hostname>/`. **With** `~/.mem/mem-toolbox/host.md`: copy its header into the
+  summary (OS, tools root, `<runtime> env` lines) and each of its tool sections into a `## <tool-id>` section, turning
+  an `outdated` status into `confirmed` with the observed version; set `legacy merged` to now. Leave the legacy file
+  untouched. **Without** it — a new collaborator, a new PC: write a summary with hostname, machine id, OS and date only,
+  and ask nothing.
+- **verify**: `machine.md` names this host. With a legacy file, compare **by key**: every (tool id, field) of the legacy
+  file is in `machine.md` with the same value, or superseded by a newer observation of the same key; anything dropped
+  is listed, and the result is `failed`.
+
+#### core/1.3.0/machine-summary — Probe the machine once
+
+- **scope**: host
+- **applies if**: the summary has no `shells`, `python` or `node` row
+- **done when**: those rows exist, each with a date and the method used
+- **after**: core/1.3.0/host-tree
+- **asks**: no
+- **action**: probe, read-only and without installing anything: the shells; Python (`py -0p` on Windows, then
+  `python3`/`python --version` resolved to absolute paths, ignoring App Execution Alias stubs); Node; then each runtime
+  and tool of the `mem-toolbox` catalogue when it is installed. Record what is found with its absolute path, version
+  and date, and what is not found with the method and date.
+- **verify**: the rows exist and every recorded path answers its version command.
+
+#### core/1.3.0/project-id — Give the project an identity
+
+- **scope**: project
+- **applies if**: `MEM.config.md` has no `project_id`, or it is `null`
+- **done when**: `project_id` is set to a non-empty slug
+- **asks**: answer — propose a short slug of the repository or folder name, recommended first
+- **action**: add `project_id: "<slug>"` to `MEM.config.md`.
+- **verify**: `MEM.config.md` carries the value.
+
+#### core/1.3.0/leak-report — Make the knowledge base host-neutral
+
+- **scope**: project
+- **applies if**: always
+- **done when**: the report has been shown and the approved changes applied
+- **asks**: yes
+- **action**: run the host-neutral check of "Linting the knowledge base". List, as well, every file outside `KB_ROOT`
+  that reads a KB file to find tools (for example a script looking up `custom/installed/<host>.md`): a **consumer**.
+  Propose one batch of rewrites or moves for operative pages — a page like `references/local-tools.md` becomes a
+  pointer to the machine base — and apply only what the user approves. Never edit product code; recommend.
+- **verify**: approved changes are in place; no rewritten page still names a machine path.
+
+### Verification
+
+- `MEM.md` reports 1.3.0.
+- `~/.mem/hosts/<hostname>/machine.md` exists with a dated summary; the host ledger and `MEM.upgrades.md` record
+  `planned: core 1.3.0` and the results of the steps above.
+- `MEM.config.md` has `project_id`, or the step is recorded `declined`.
+- `projects.md` has a row for this checkout.
+
 ## 1.2.3 -> 1.2.4
 
 ### Summary

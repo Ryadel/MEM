@@ -1,12 +1,13 @@
 # Extension: `mem-toolbox`
 
-- **version**: 1.0.3
+- **version**: 1.1.0
 - **provides**: `TOOLS`, and the tool, library and runtime capability registry
 - **subcommands**: `CHECK`, `SETUP` — closed set
 - **precedence**: **custom wins** — a project entry overrides a catalogue entry, and the override is disclosed
-- **external actions**: yes — writing this host's machine file under `~/.mem/mem-toolbox/` once the user has
-  confirmed it, and the approved package install in "Installing"; nothing else
-- **configuration**: `extensions_mem_toolbox_kb_copy` (default `false`) — see "Copy in the knowledge base"
+- **external actions**: yes — writing tool sections and summary rows in the core's machine file,
+  `~/.mem/hosts/<hostname>/machine.md`, and the approved package install in "Installing"; nothing else
+- **configuration**: none. `extensions_mem_toolbox_kb_copy` was retired in 1.1.0 — see "Legacy host files"
+- **upgrade**: `UPGRADE.md`
 - **default mode**: read-only
 
 Records which tooling to use for a task — CLI tools, libraries, and the runtimes libraries need — and whether
@@ -26,13 +27,14 @@ the two directions: each extension declares its own.
 | # | Catalogue | Answers | Lives in |
 |---|---|---|---|
 | 1 | `catalog/` | which tool to use for a task | the knowledge base — base layer, distributed in the manifest |
-| 2 | `custom/tools/` | which tool **this project** uses | the knowledge base — custom layer |
-| 3 | the **machine file** | what exists **on this host**, and where | `~/.mem/mem-toolbox/host.md`, outside every repository |
+| 2 | `custom/tools/` | which tool **this project** uses, and what it **requires** | the knowledge base — custom layer |
+| 3 | the **machine file** | what exists **on this machine**, and where | the core's machine base, `~/.mem/hosts/<hostname>/machine.md`, outside every repository |
 
 ```text
 extensions/mem-toolbox/        in the knowledge base
   index.md                     this file
   TOOL.template.md             entry schemas
+  UPGRADE.md                   migration steps for this extension
   catalog/
     index.md                   runtimes, and domain -> sub-index
     index.<domain>.md          capability -> tool, one per domain
@@ -40,21 +42,21 @@ extensions/mem-toolbox/        in the knowledge base
   custom/                      never distributed, never in the manifest
     index.md                   capability -> tool, project-local
     tools/<tool>.md
-    installed/<host>.md        optional copy of a machine file — see "Copy in the knowledge base"
 
-~/.mem/mem-toolbox/            per user, per host (%USERPROFILE%\.mem\mem-toolbox\ on Windows)
-  host.md                      this host: tools root, agent environments, one section per tool
+~/.mem/hosts/<hostname>/       the core's machine base (%USERPROFILE%\.mem\hosts\<hostname>\ on Windows)
+  machine.md                   summary (with this extension's tools root and environment rows), one section per tool
 ```
 
 The first two catalogues are about the project and travel with it. The third is about the machine, so it lives on
-the machine: **one file per host, shared by every project on that host**. The tools root is asked once per host,
-an agent environment is chosen once per host, and a tool probed while working on one project is known in all the
-others. `~/.mem/` is the per-user folder MEM extensions use for machine state; `mem-stats` keeps its ledger there
-too.
+the machine: **one file per machine and OS account, shared by every project on it**. It belongs to the core — see
+`MEM.md`, "Machine base" — so every project reads it, with or without this extension; this extension adds the tools
+root, the agent environments, and one section per tool. The tools root is asked once per machine, an agent
+environment is chosen once per machine, and a tool probed while working on one project is known in all the others.
 
 Availability never goes inside a catalogue entry. The knowledge base is committed and shared, so recording "this
 tool is available" as a plain fact would mislead every other machine — an agent elsewhere would read it and **skip
-asking the user**.
+asking the user**. A project states what it **requires** (`min version` in its custom entry); the machine file states
+what is there.
 
 `custom/tools/` does not exist until the first entry is written. Its absence is normal.
 
@@ -63,19 +65,19 @@ asking the user**.
 - **mode**: read-only
 - **target**: none
 
-Lists the known tools with their capability, availability on this host, the agent environments, and stale or
-`outdated` verifications, from the machine file. It does **not** re-probe: refreshing happens as a side effect of
-actually using a tool, or on request through `MEM TOOLS CHECK`. Without a machine file it says so and proposes
-`MEM TOOLS SETUP`.
+Lists the known tools with their capability, what the machine file observed on this machine, the agent
+environments, expired observations, and — against this project's entries — versions below a `min version`. It does
+**not** re-probe: refreshing happens as a side effect of actually using a tool, or on request through
+`MEM TOOLS CHECK`. Without a machine file it says so.
 
 ## `MEM TOOLS CHECK`
 
-- **mode**: may-write — the machine file, and the knowledge base copy when it is enabled
+- **mode**: may-write — the machine file
 - **target**: none
 
-Probes every `kind: runtime` entry and every agent environment recorded for this host, writes the results to
-the machine file, and reports what is missing or below its `min version`, with a proposal for each — see
-"Installing" for what the proposal may contain.
+Probes every `kind: runtime` entry and every agent environment recorded for this machine, writes the observations
+to the machine file, and reports what is not found or below the `min version` of this project's effective entry
+(custom over catalogue), with a proposal for each — see "Installing" for what the proposal may contain.
 
 It **must not** install, update, or reach the network: "below the minimum" is decided offline, against the
 entry, never against "latest". It runs only when asked, never at session start. Its writes are the machine-file
@@ -83,33 +85,28 @@ writes this extension already makes automatically, so it adds no new kind of wri
 
 ## `MEM TOOLS SETUP`
 
-- **mode**: may-write — the machine file; `MEM.config.md` and the knowledge base copy only when the user chooses
-  the copy
+- **mode**: may-write — the machine file
 - **target**: none
 
-The wizard for the machine file. Ask with the client's question tool when it has one (numbered questions
-otherwise), recommended option first, in the user's language, explaining each choice plainly. Write nothing
-before the final confirmation.
+The optional wizard for this extension's rows of the machine file. Ask with the client's question tool when it has
+one (numbered questions otherwise), recommended option first, in the user's language, explaining each choice
+plainly. Write nothing before the final confirmation.
 
-1. **Tools root** — where portable tools live on this host. See "The tools root" for the valid answers and for
+1. **Tools root** — where portable tools live on this machine. See "The tools root" for the valid answers and for
    what may be proposed.
 2. **Agent environments** — for each `kind: runtime` entry (`python`, `node`): `dedicated`, `system`, or *decide at
    first need*. State the trade-offs in "The question, always asked"; nothing is preselected.
-3. **Copy in this knowledge base** — no (recommended) · yes. It is a property of the repository, not of the
-   machine — see "Copy in the knowledge base". It is asked only here: elsewhere an unset option means `false`, and
-   no project is ever asked about it unprompted.
 
-Then show the plan: the path and full content of the machine file, and, when the copy is chosen, the
-`MEM.config.md` line and the copy's path. One confirmation writes all of it. That confirmation is the user's
-approval for this extension to keep its machine file: later automatic writes — the observations in "Writing
-entries" — go to that one file only.
+Then show the plan: the summary rows to write. One confirmation writes them. That confirmation is the user's approval
+for this extension to keep its rows and sections in the machine file: later automatic writes — the observations in
+"Writing entries" — go to that one file only.
 
-When a machine file already exists, its values are the defaults shown, tool sections are kept, and nothing is
-re-probed. Run `SETUP` again to change an answer. When there is no machine file but this knowledge base holds a
-host file for this host, `SETUP` starts from it — see "Existing host files".
+When the rows already exist, their values are the defaults shown, tool sections are kept, and nothing is re-probed.
+Run `SETUP` again to change an answer. Nobody has to run `SETUP`: without it, the tools root and each environment are
+asked the first time they are actually needed.
 
-If the client cannot write outside the repository — a sandbox, a refused permission — say so and show the file's
-content and path for the user to save. **Never** fall back silently to writing it into the repository.
+If the client cannot write outside the repository — a sandbox, a refused permission — say so and show the rows and
+the path for the user to save. **Never** fall back silently to writing them into the repository.
 
 ## Query before acting
 
@@ -119,24 +116,24 @@ Before performing an operation that needs a CLI tool or a library:
    capability** — the lookup key is the task ("resize an image", "create a PDF"), which cannot be inferred from
    a filename such as `imagemagick.md`. A capability may have CLI and library candidates; they compete in one
    list, in preference order;
-2. read the machine file for the chosen candidate. If there is none on this host, create it first, **before** any
-   tool is looked up: import it as "Existing host files" describes when this knowledge base holds a host file for
-   this host, otherwise run `MEM TOOLS SETUP` — or, when the user would rather not, ask the tools root question
-   alone and write the file with it after the same single confirmation. Then:
+2. read the machine file's section for the chosen candidate (the core has already read the summary). If the machine
+   file does not exist yet, the core creates it — see `MEM.md`, "Machine base". Then:
    - `confirmed` → use the recorded path and invocation. Re-probe first when the operation is destructive, or
-     when the verification is old;
-   - `unavailable` or `declined` → do **not** ask again. Offer the next candidate;
-   - `outdated` → usable if it works; say it is below the minimum, once per session;
+     when the verification is old. If the observed version is below the `min version` of this project's effective
+     entry, it is still usable if it works: say so once per session;
+   - `declined` → do **not** ask again. Offer the next candidate;
+   - `not found` → an observation, not a verdict: re-probe once — always when it is older than 30 days, and before
+     telling the user the tool is missing — then offer the next candidate;
    - no section for this tool → probe, then record the result;
 3. for a library, the same step applies to its runtime first, then to the library inside the agent environment
    — see "Libraries and runtimes";
 4. no candidate in either catalogue → ask the user. If a tool is agreed on, write the custom entry, then the
    installed entry.
 
-Once the machine file exists, its questions are **never asked again on that host**, from any project.
+Once recorded, the tools root and environment answers are **never asked again on that machine**, from any project.
 
-A host file in the knowledge base for **another host** is a hint about what to try, never proof. Say so when
-relying on it.
+A host file in a knowledge base, or another machine's tree in a synced `~/.mem/`, is a hint about what to try, never
+proof. Say so when relying on it.
 
 The agent **must never** install anything autonomously. Entries describe; the user authorises. The one
 install the agent **may** perform is the approved one described in "Installing".
@@ -145,37 +142,31 @@ install the agent **may** perform is the approved one described in "Installing".
 
 | What | Trigger |
 |---|---|
-| The machine file | Created by `MEM TOOLS SETUP` or at first need, after one confirmation. From then on **automatic**: each write records an observation — a version command answered — it is local, and it is precisely the data that avoids re-probing every session |
-| `custom/installed/<host>.md` | **Automatic** when `extensions_mem_toolbox_kb_copy` is true: rewritten from the machine file after each write to it |
+| Tool sections and observations in the machine file | **Automatic**: each write records an observation — a version command answered — it is local, and it is precisely the data that avoids re-probing every session. Written with the script in `MEM.md`, "Writing shared files", mode `section`; only what is new or changed |
+| Tools root and environment rows | After the user's answer, mode `row` |
 | `custom/tools/<tool>.md` | **Confirmation required.** "This is what we use for X" is an editorial judgement, not an observation |
 
-Record absence as well as presence. `unavailable` and `declined` are persistent answers; without them the agent
-re-probes and re-asks every session.
+Record absence as well as presence: `not found`, with the method and date, saves a re-probe in every session until
+it expires; `declined` is a persistent answer and saves asking again.
 
 An installed entry **must** reference a catalogue entry by id. If the tool is in neither catalogue, write the
 custom entry first, otherwise the host layer degenerates into an undocumented list of paths.
 
 ## The machine file
 
-`~/.mem/mem-toolbox/host.md` — `%USERPROFILE%\.mem\mem-toolbox\host.md` on Windows. Its schema is the installed
-entry in `TOOL.template.md`: a header with the host name, the OS, the tools root and the agent environments, then
-one section per tool. It is per user and per host, and it is in no repository, so it never produces a merge
-conflict and one machine's reality never overwrites another's.
+`~/.mem/hosts/<hostname>/machine.md` — `%USERPROFILE%\.mem\hosts\<hostname>\machine.md` on Windows. It belongs
+to the core: its location, identities, summary, observation rules and write protocol are in `MEM.md`, "Machine base",
+and apply here unchanged. This extension's schema for its rows and sections is the installed entry in
+`TOOL.template.md`. It is per OS account and per machine, and in no repository, so it never produces a merge conflict
+and one machine's reality never overwrites another's.
 
-### Created first, not on demand
-
-The file is created **before** any tool is looked up, even when it has nothing to say yet. A path has to be
-recorded the moment a tool is first used, which is exactly when no file exists to hold it; an agent under time
-pressure then puts it wherever it can — a catalogue entry, `references/`, a daily log — and the separation this
-extension exists to enforce is broken on first contact. An empty machine file costs nothing and removes the
-decision.
-
-A header with no tool sections is a meaningful state: "this host is known, nothing probed yet". It is not the same
-as a missing file, which means "this host has never been set up".
+The core creates the file before any tool is used, so that a path observed for the first time always has its
+destination, rather than landing in a catalogue entry, `references/` or a daily log.
 
 ### The tools root
 
-**Where do portable tools live on this host?** Recorded as `tools root`, asked **once per host**.
+**Where do portable tools live on this machine?** Recorded as the `tools root` summary row, asked **once per
+machine**, the first time it is needed.
 
 The agent **must** ask rather than guess. It **may** propose a value it has evidence for — a directory already
 holding one of the catalogue's tools, or one named in `PATH` — and **must** show that evidence when it does.
@@ -198,40 +189,28 @@ convention below. Naming the destination is the whole benefit of asking; it is n
 under it on its own initiative. It records where things are, and tells the user where a thing should go. The
 one exception is `envs/`, and only with approval — see "Installing".
 
-Per-tool paths are written relative to the tools root, so a whole toolchain can be relocated by editing one line.
+Per-tool paths are written relative to the tools root, so a whole toolchain can be relocated by editing one row.
 The machine file is never committed, so its paths may be absolute; it never records a credential. A tool needing
 an auth token documents the variable **name**, never its value.
 
-### Copy in the knowledge base
+### Legacy host files
 
-`extensions_mem_toolbox_kb_copy` in `MEM.config.md`, default **`false`**. When `true`, every write to the machine
-file is mirrored into this knowledge base as `custom/installed/<host>.md`, so "on Windows hosts we use vips at this
-path" becomes team knowledge that survives the machine.
+Two older places held machine facts. They are read, never written, by this version:
 
-- The copy is a **mirror**, never the source: on its own host the machine file is authoritative, and a copy from
-  another host is a hint.
-- The host key is the hostname or a label of the user's choosing; it is the only place the knowledge base records
-  machine identity.
-- **Paths leak.** `C:\Users\<name>\...` exposes a username, and a tools directory exposes internal layout, into a
-  repository that is normally committed. In the copy, prefer environment-relative forms — `%LOCALAPPDATA%`,
-  `%PROGRAMFILES%`, `$HOME` — and keep per-tool paths relative to the tools root.
-- Turning it on changes `MEM.config.md`, so it needs confirmation; `SETUP` asks. Turning it off leaves the existing
-  copy where it is: say that it is no longer updated, and remove it only if the user asks.
+| Legacy file | Written by | Handling |
+|---|---|---|
+| `~/.mem/mem-toolbox/host.md` | `mem-toolbox` 1.0.3, possibly still running in other knowledge bases | The core merges its newer observations into the machine file — see `MEM.md`, "Machine base". It stays a live file until `mem-toolbox/1.1.0/legacy-retire` is applied |
+| `custom/installed/<host>.md` in a knowledge base | `mem-toolbox` 1.0.0 – 1.0.2, and 1.0.3 with `extensions_mem_toolbox_kb_copy` | A reconciliation, below; removal by `mem-toolbox/1.1.0/remove-host-copy/<host>` |
 
-The default is `false` because the copy is the only part of this extension that writes machine facts into a
-repository, and most projects do not need them there.
+**Importing a host copy** is a reconciliation, not a migration: whenever this knowledge base holds
+`custom/installed/<hostname>.md` for **this** machine — matched by hostname, or by a label the user confirms once —
+changed since its last import, merge it into the machine file: the tools root and `<runtime> env` lines as summary
+rows when none exist yet, each tool section under the same-key rule (an older observation never replaces a newer one),
+`outdated` read as `confirmed`, `unavailable` as `not found`, the old `source control` field dropped. No question is
+asked again for anything it answers. A copy for **another** machine is never imported here: that machine imports it.
 
-### Existing host files
-
-A knowledge base may already hold `custom/installed/<host>.md` for the current host, written when host data lived
-there. When the machine file is missing and such a file exists — matched by hostname or by a label the user
-recognises; ask which when several could be this host — the agent **must** propose importing it into the machine
-file with **one** confirmation, and **must not** ask the tools root or environment questions again. Import the
-header — host name, OS, tools root, the `<runtime> env` lines — and every tool section; drop the old
-`source control` field.
-
-The file in the knowledge base is left in place. Say what it becomes: with `extensions_mem_toolbox_kb_copy: true`,
-the maintained copy; otherwise a snapshot no longer updated, which the user may keep or remove.
+`extensions_mem_toolbox_kb_copy` is retired: a mirror of machine facts in a repository is precisely what goes stale and
+misleads other machines. When it is still set, `mem-toolbox/1.1.0/drop-kb-copy` removes it; until then it is ignored.
 
 ## Where tools live on disk
 
@@ -310,12 +289,12 @@ Importing proves the library loads; the metadata version is the installed distri
 `package` and `import` are separate fields because they differ more often than not — `Pillow` imports as
 `PIL`, `python-docx` as `docx`. The **package** name is what an install takes and what an approval names.
 
-A library whose runtime is missing or `unavailable` is not probed: report the runtime, not the library.
+A library whose runtime is missing or `not found` is not probed: report the runtime, not the library.
 
 ## Agent environments
 
-The agent keeps **one environment per runtime, per host** — never one per project — and records it in the machine
-file as `<runtime> env`.
+The agent keeps **one environment per runtime, per machine** — never one per project — and records it in the machine
+file as the `<runtime> env` summary row.
 
 ### The question, always asked
 
@@ -324,7 +303,7 @@ a host, **must not** preset or infer an answer, and **must** state the trade-off
 
 | | `dedicated` | `system` |
 |---|---|---|
-| Every project on this host shares the same tools and versions | **yes** | **yes** |
+| Every project on this machine shares the same tools and versions | **yes** | **yes** |
 | Isolated from the OS and from other software | yes | no — shared with every program using that interpreter |
 | Needs admin rights | no | often |
 | Undone by | deleting one folder | uninstalling package by package |
@@ -333,10 +312,10 @@ a host, **must not** preset or infer an answer, and **must** state the trade-off
 | Costs | one more directory, invoked through its own interpreter path | none to create; a Python marked *externally managed* ([PEP 668](https://peps.python.org/pep-0668/)) refuses `pip install` outright |
 
 The first row is deliberately the same in both columns: sharing across projects comes from having **one
-environment per host**, not from choosing the system interpreter. What neither gives is the same versions on
+environment per machine**, not from choosing the system interpreter. What neither gives is the same versions on
 **another** host — that is what `min version` in the entry is for.
 
-The answer is recorded and not re-asked on that host. Every install approval restates it in one line, so the
+The answer is recorded and not re-asked on that machine. Every install approval restates it in one line, so the
 choice stays visible.
 
 ### Where a dedicated environment lives
@@ -377,12 +356,13 @@ After an install the agent probes the package and records the result like any ot
 
 An entry still never carries an install command. The command appears in the approval, and nowhere else.
 
-### `outdated`
+### Below a `min version`
 
-An entry **may** declare a `min version`. A probe below it records `outdated`: the tool stays usable, and the
-agent says once per session that it is below the minimum, with a proposal at the level above. A refused update
-is recorded as `update declined: <date>` in that section, and **must not** be proposed again until the user
-asks.
+An entry **may** declare a `min version`. Whether an observed version meets it is decided **at use**, against this
+project's effective entry (custom over catalogue) — never stored in the machine file, because the same version can
+satisfy one project and not another. Below it, the tool stays usable; the agent says once per session that it is
+below this project's minimum, with a proposal at the level above. A refused update is recorded as
+`update declined: <date>` in that section, and **must not** be proposed again until the user asks.
 
 ## Boundary with `references/` and with project dependencies
 

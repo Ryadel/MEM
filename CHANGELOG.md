@@ -4,6 +4,49 @@ All notable MEM changes are documented in this file.
 
 MEM uses `MAJOR.MINOR.BUILD` versioning. Version-to-version migration steps are documented in [MEM.upgrade.md](MEM.upgrade.md).
 
+## 1.3.0 - 2026-11-08
+
+"User-host scopes and shared tooling".
+
+### Added
+
+- **Machine base**: one per user account per computer, `~/.mem/hosts/<hostname>/`, outside every repository and read
+  by every project through `MEM.md` — so all the projects on a computer agree on which runtimes and tools exist and
+  where. `machine.md` opens with a summary read at session start; tool details are read when needed. Entries are
+  dated observations: a recorded path wins over a failed `PATH` probe, "not found" expires after 30 days and is
+  checked again before a tool is declared missing, and whether a version meets a project's minimum is decided per
+  project, never stored. No hooks, environment variables or setup: it is created when first needed, and a missing
+  `~/.mem/` is a normal state.
+- **Three identities**: `project_id` (committed, the same for everyone), the host (hostname within one user account,
+  with the OS machine id), the checkout (one clone or worktree). Each computer writes only its own tree, so `~/.mem/`
+  can be synced between one person's machines.
+- **Writing shared files**: one shell command per write — PowerShell and POSIX scripts in `MEM.md` — with a lock
+  that has an owner token, is recovered only from a dead owner on the same host, and is released only by its owner;
+  re-read, merge by key, atomic replace.
+- **Host-neutral knowledge base**: operative pages carry no machine paths, hostnames, usernames or availability
+  claims; `MEM LINT` reports what slipped in.
+- **Upgrade steps and ledgers**: from this release a hop in `MEM.upgrade.md` — and in an extension's `UPGRADE.md` — is
+  a list of idempotent steps scoped to the project, the machine or one checkout, recorded in `MEM.upgrades.md`
+  (committed) or the machine's ledger, so that each runs once per scope; failed, postponed and blocked steps stay
+  pending, refusals are remembered, one confirmation per upgrade, an interrupted run resumes. Session start compares
+  the ledger headers with the core and extension versions.
+- `MEM STATUS` reports open upgrade steps and the checkouts on this computer that are behind.
+
+### Changed
+
+- **`mem-toolbox` 1.1.0**: machine facts move from `~/.mem/mem-toolbox/host.md` to the core's machine base; no more
+  `outdated` status (decided per project at use); `not found` is an expiring observation; `MEM TOOLS SETUP` is
+  optional and asks only the tools root and environments; host copies left in knowledge bases are imported by their
+  own machine and removed only when nothing reads them; the legacy file stays live until an explicit check retires
+  it. New `UPGRADE.md`.
+- Applying `MEM.upgrade.md` after an update is now required (was recommended).
+- Initialization proposes a `project_id`.
+
+### Configuration
+
+- Added `project_id` (default `null`).
+- Retired `extensions_mem_toolbox_kb_copy` (`mem-toolbox` 1.1.0).
+
 ## 1.2.4 - 2026-10-31
 
 ### Changed

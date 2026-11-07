@@ -1,6 +1,6 @@
 # [MEM: Markdown Embedded Memory](https://github.com/Ryadel/MEM)
 
-MEM version: 1.2.4
+MEM version: 1.3.0
 
 This file is the LLM agent's bootstrap memory for this project. The terms `MEM`, `MEM.md`, project context, and project memory all refer to this file. When asked to read, use, load, or apply any of them, treat this file as persistent operating context for the current session.
 
@@ -25,7 +25,8 @@ The agent **must**:
 3. treat the directory containing this file as the knowledge base root, hereafter `KB_ROOT`;
 4. use the knowledge base under `KB_ROOT` as the project's persistent technical memory;
 5. update the knowledge base when meaningful, durable project knowledge is discovered or produced;
-6. inspect the actual source code before making implementation claims.
+6. inspect the actual source code before making implementation claims;
+7. read the machine base before relying on, or denying, the presence of a runtime or tool — see "Machine base".
 
 ## Core principle
 
@@ -43,6 +44,7 @@ If `MEM.config.md` is missing, use these defaults.
 
 ```yaml
 kb_root: "."
+project_id: null
 kb_language: "en"
 user_language: "auto"
 link_style: "markdown"
@@ -97,6 +99,8 @@ Precedence (highest to lowest):
 
 The agent **must not** overwrite explicit values in `MEM.config.md` without user confirmation.
 
+- `project_id` identifies the project outside its repository, the same for every person and machine — see "Machine
+  base". `null` until the user accepts one; it is proposed at initialization and by the 1.3.0 upgrade.
 - `kb_language` controls the KB writing language.
 - `user_language: auto` means reply to the user in their own language.
 - `link_style: markdown` → `[Title](path.md)`; `link_style: wikilink` → `[[path|Title]]`.
@@ -127,7 +131,7 @@ After updating `MEM.md`, report the previous version, the new version when avail
 
 Extensions listed in the manifest are updated from it, not from `mem_update_url`, which carries `MEM.md` alone. Updating `MEM.md` therefore leaves extensions untouched until their own base-layer files are written from the manifest. Their versions are checked separately — see "Checking extension versions" — and extensions new to the manifest are offered as described in "Offering the catalogue".
 
-After a successful update, the agent **should** check `MEM.upgrade.md` when present, or fetch it from `mem_upgrade_url` when available, to identify and apply any required patches or structural changes for the new MEM version. Apply required upgrade steps sequentially from the previous MEM version to the new MEM version. For `MAJOR.MINOR.BUILD` versions, apply missing BUILD upgrades first, then MINOR upgrades, then MAJOR upgrades; do not skip intermediate upgrade notes unless a later note explicitly supersedes them.
+After a successful update, the agent **must** check `MEM.upgrade.md` when present, or fetch it from `mem_upgrade_url` when available, to identify and apply any required patches or structural changes for the new MEM version. Hops written as steps are applied as described in "Upgrade steps and ledgers". Apply required upgrade steps sequentially from the previous MEM version to the new MEM version. For `MAJOR.MINOR.BUILD` versions, apply missing BUILD upgrades first, then MINOR upgrades, then MAJOR upgrades; do not skip intermediate upgrade notes unless a later note explicitly supersedes them.
 
 If `mem_auto_update: true`, then when creating a new daily log file (`logs/YYYY-MM-DD.md`), the agent **must** first attempt to update the local `MEM.md` from `mem_update_url` using the same rules above.
 
@@ -170,6 +174,36 @@ Ask at most once per session, and honor a refusal for the rest of it. A permanen
 
 When `extensions_enabled` is false, the agent **must not** run this check: the configuration is already an answer.
 
+## Upgrade steps and ledgers
+
+From 1.3.0, a hop in `MEM.upgrade.md`, and in an extension's `UPGRADE.md`, is a list of **steps**: idempotent
+migrations, each with an id `<owner>/<version>/<step>[/<param>]` — owner `core` or an extension id — and a scope.
+Their fields, results and run procedure are defined at the top of `MEM.upgrade.md`, under "Running an upgrade", which
+the agent **must** follow when it applies steps. Earlier hops are prose and are applied as before. If
+`MEM.upgrade.md` is neither present nor fetchable, say so and leave the steps pending.
+
+Every result is recorded in a ledger, so that a step is applied once per scope and a refusal is remembered:
+
+| Scope | Applied once per | Ledger |
+|---|---|---|
+| `project` | project — every person, every machine | `MEM.upgrades.md` in `KB_ROOT`, committed |
+| `host` | machine, for this OS account | `~/.mem/hosts/<hostname>/upgrades.md` |
+| `checkout` | clone or worktree of the project on this machine | the host ledger, keyed by checkout |
+
+Each ledger opens with a header recording the versions last planned — the core and every installed extension — and
+the number of open steps. At session start the agent **must** read the two headers and build an upgrade plan when the
+core version or any installed extension version differs from them, or when open steps remain; otherwise it reads
+nothing more. Updating `MEM.md` or an extension builds a plan as well.
+
+A plan is presented **once**, with the client's question tool when it has one: automatic steps, listed; steps needing
+approval; blocked steps, with their reason; steps already done elsewhere. The user applies all, chooses, or
+postpones. An automatic step may write outside the repository only under `~/.mem/`. After the run, the daily log
+records one line after the auto-update line:
+
+```markdown
+> MEM upgrade: core 1.2.4 -> 1.3.0, 5 done, 1 deferred, 1 blocked.
+```
+
 ## Compression principle
 
 MEM defines project-specific operating rules. It **should not** re-teach standard documentation practices. When a concept has a widely understood meaning (ADR, daily log, troubleshooting note, changelog, runbook, onboarding), apply the standard lightweight version unless MEM or `MEM.config.md` defines a stricter rule.
@@ -187,6 +221,7 @@ KB_ROOT/
   MEM.remote-cache.md
   MEM.index.md
   MEM.project.md
+  MEM.upgrades.md
   architecture/
   docs/
   conventions/
@@ -225,6 +260,7 @@ Additional folders may be added when useful. Keep the structure simple and navig
 | `MEM.index.md` | Navigation entry point. Lists important pages grouped by category, with short descriptions. Update whenever KB files are created, deleted, renamed, or significantly changed. |
 | `MEM.project.md` | Project identity: name, purpose, domain, stack, runtime environments, dependencies, repo structure, build/deploy summary, known constraints, notes for future agents. |
 | `MEM.remote-cache.md` | Optional technical cache for remote MEM content. Not a KB page and not linked from `MEM.index.md`. |
+| `MEM.upgrades.md` | Ledger of project-scope upgrade steps — see "Upgrade steps and ledgers". Written by upgrades, committed, not a KB page. |
 | `architecture/` | How things **currently** work: system structure, module map, data model, request flow, auth, security, deployment, integrations. Not how they should ideally work. |
 | `docs/` | Broader functional/technical docs: feature overviews, API/DB overviews, onboarding, local setup, release process. |
 | `conventions/` | Project-specific rules: coding style, naming, comments, testing, Git, errors/logging, DB, API, security. Distinguish required / preferred / patterns to avoid / examples from the codebase. Avoid generic best practices not adopted by the project. |
@@ -442,6 +478,8 @@ The upgrade procedure is therefore *"write the manifest paths"*. The agent **mus
 
 Manifest paths are relative to `KB_ROOT`. `KB_ROOT` is arbitrary, so a manifest **must not** hardcode a folder name such as `MEM/`.
 
+An extension whose update needs migration ships `UPGRADE.md` in its base layer, listed in the manifest, written in the step format of "Upgrade steps and ledgers" with its own id as owner. It arrives with the update and is applied by the plan that the update builds.
+
 If the manifest cannot be fetched, the agent **must** report that the catalogue could not be checked. It **must not** fabricate an installation proposal, and **must not** assert that a command or capability does not exist.
 
 ### Installing an extension from the manifest
@@ -488,6 +526,193 @@ manifest" requires. After it:
 If the user dismisses the question, nothing is recorded and the offer is made again at the next occasion; it is
 asked at most once per session. When `extensions_enabled` is false, there is no offer. If the manifest cannot be
 fetched, the agent says the catalogue could not be checked and registers nothing.
+
+---
+
+# Machine base
+
+Facts about the machine — the OS, shells, runtimes, tools and where they are — are not project knowledge: they
+differ per machine and per person, and a copy in a repository misleads every other clone. MEM keeps them in **one
+machine base per OS account per machine**, shared by every project on it and outside every repository.
+
+## Identities
+
+| Identity | Identifies | Form |
+|---|---|---|
+| `project_id` | the project, across people and machines | `MEM.config.md`, committed |
+| host | this machine, for this OS account | the short hostname (`$env:COMPUTERNAME` on Windows, `hostname -s` elsewhere); `machine.md` also records the OS machine id — Windows `MachineGuid`, Linux `/etc/machine-id`, macOS `IOPlatformUUID`, read only — to recognize a renamed host |
+| checkout | one clone or worktree of the project on this machine | `<folder>-<hash>`: the name of the folder containing `KB_ROOT`'s repository, and the first 8 hex digits of the SHA-256 of `KB_ROOT`'s absolute path — resolved, forward slashes, lower-case on Windows |
+
+The OS account bounds everything local; the git identity bounds nothing.
+
+## Layout
+
+```text
+~/.mem/                          %USERPROFILE%\.mem\ on Windows
+  README.md                      what this folder is
+  hosts/<hostname>/              everything local to one machine; only that machine writes here
+    machine.md                   the machine file
+    upgrades.md                  host and checkout upgrade ledger
+    projects.md                  checkouts seen on this machine
+    checkouts/<checkout>.md      local data of one checkout: sibling repository locations, path overrides
+    locks/                       locks for files outside ~/.mem
+  <extension-id>/                extension runtime state
+```
+
+Files are created when first needed. A missing `~/.mem/` is a normal state: the project works without it, probing
+instead. `~/.mem/` **may** be synced between one person's machines, since each machine reads and writes only its own
+`hosts/<hostname>/`; `<extension-id>/` folders are machine state and **must not** be synced. `~/.mem/user.md` is
+reserved for a later release.
+
+At session start, when `hosts/<hostname>/` exists, the agent **should** refresh this checkout's row in
+`projects.md` — checkout, path, `project_id`, core and extension versions, last seen — when a version changed or the
+row was last seen before today. `MEM STATUS` reports the checkouts on this machine that are behind.
+
+## The machine file
+
+`machine.md` opens with a **summary** table — machine id, OS, shells, runtimes with absolute paths, tools root, tools
+not found, each with its date — followed by one `## <tool-id>` section per tool, written as bullets.
+
+- At session start the agent **should** read the summary only; a tool's section when the tool is needed.
+- Before stating that a runtime or tool is unavailable, the agent **must** have read the summary and the tool's
+  section, if any.
+- A recorded absolute path wins over a failed `PATH` probe; the entry changes only when the recorded path fails too,
+  and then in this file, so every project sees the correction.
+- Entries are **observations**, dated, with the method used. `not found` never proves absence: it expires after 30
+  days, and before telling the user a tool is missing the agent **must** probe once more. On Windows, the App
+  Execution Alias stubs in `%LOCALAPPDATA%\Microsoft\WindowsApps\` are not interpreters; `py -0p` lists the real
+  Python installations.
+- Preferences and refusals — tools root, environment choices, `declined` — persist until the user changes them.
+- Requirements belong to the project. Whether an observed version satisfies one (`outdated`) is decided at use, for
+  the project at hand, and is not stored here.
+- Observations compete only for the same key — tool, environment or interpreter path, host — and an older one never
+  replaces a newer one. Write only what is new or changed.
+
+This holds for any use of a runtime or tool, with or without extensions; `mem-toolbox`, when installed, adds its
+catalogues and setup on top.
+
+Until it is retired, `~/.mem/mem-toolbox/host.md`, kept by `mem-toolbox` 1.0.3, is a second source: when it changed
+after the summary's `legacy merged` date, merge its newer observations into `machine.md` and update that date. The
+merge runs one way — agents of KBs still on 1.0.3 do not see corrections made here until their KB is upgraded — and
+the file is never written by this rule.
+
+## Writing shared files
+
+Several sessions may write the same file at once. Every write to a file under `~/.mem/`, and to `MEM.upgrades.md`,
+**must** use the script below, run as **one** shell command, so that the lock lives only as long as that command —
+never across tool calls, and never while waiting for the user. Records are keyed: a table row by its first cell, a
+section by its `## ` heading.
+
+1. Write the record to a file of its own (a whole new file's content for `create`).
+2. Run the script with the target file, the mode — `create` (only if the file does not exist), `row` or `section` —
+   the key, the record file, and the lock: `<file>.lock` under `~/.mem/`; for `MEM.upgrades.md`,
+   `~/.mem/hosts/<hostname>/locks/<checkout>-MEM.upgrades.lock`, so that no lock appears in a working tree. Use
+   absolute paths.
+
+The script takes the lock as a directory with an owner token; recovers it only when its owner is on this host and its
+process is verifiably gone; re-reads the file; replaces or inserts the record — a section is not replaced by one with
+an older `verified` date; writes a temporary file and replaces the target atomically, skipping identical content; and
+releases only its own lock. A lock it can neither take nor recover is reported, and the write is retried later in the
+session.
+
+PowerShell (Windows PowerShell 5.1 and later):
+
+```powershell
+$f = '<file>'; $mode = '<create|row|section>'; $key = '<key>'; $in = '<record file>'; $lock = "$f.lock"
+$ErrorActionPreference = 'Stop'; $h = $env:COMPUTERNAME; $tok = [guid]::NewGuid().ToString('N'); $nl = "`n"
+$st = { param($p) try { "$((Get-Process -Id $p -ErrorAction Stop).StartTime.ToUniversalTime().Ticks)" } catch { '' } }
+New-Item -ItemType Directory -Force (Split-Path $f), (Split-Path $lock) | Out-Null
+$got = $false
+for ($i = 0; $i -lt 50 -and -not $got; $i++) {
+  try { New-Item -ItemType Directory $lock -ErrorAction Stop | Out-Null
+        [IO.File]::WriteAllText("$lock/owner", "$tok $h $PID $(& $st $PID)"); $got = $true; break } catch {}
+  $o = "$(Get-Content "$lock/owner" -ErrorAction SilentlyContinue)" -split ' '
+  if ($o.Count -eq 4 -and $o[1] -eq $h -and (& $st ([int]$o[2])) -ne $o[3]) {
+    try { Rename-Item $lock "$lock.dead-$tok"; Remove-Item "$lock.dead-$tok" -Recurse -Force } catch {}
+  } else { Start-Sleep -Milliseconds 100 }
+}
+if (-not $got) { throw "MEM: $lock is held; write not done" }
+try {
+  $old = if (Test-Path $f) { [IO.File]::ReadAllText($f) -replace "`r`n", $nl } else { '' }
+  $rec = ([IO.File]::ReadAllText($in) -replace "`r`n", $nl).TrimEnd()
+  $L = New-Object Collections.Generic.List[string]; if ($old) { $L.AddRange([string[]]($old.TrimEnd() -split $nl)) }
+  $k = [regex]::Escape($key)
+  if ($mode -eq 'create') { if (-not $old) { $L.AddRange([string[]]($rec -split $nl)) } }
+  elseif ($mode -eq 'row') {
+    $r = -1; $last = -1
+    for ($j = 0; $j -lt $L.Count; $j++) { if ($L[$j] -like '|*') { $last = $j; if ($r -lt 0 -and $L[$j] -match "^\|\s*$k\s*\|") { $r = $j } } }
+    if ($r -ge 0) { $L[$r] = $rec } elseif ($last -ge 0) { $L.Insert($last + 1, $rec) } else { $L.Add($rec) }
+  } else {
+    $s = -1; for ($j = 0; $j -lt $L.Count; $j++) { if ($L[$j] -match "^##\s+$k\s*$") { $s = $j; break } }
+    if ($s -lt 0) { if ($L.Count) { $L.Add('') }; $L.AddRange([string[]]($rec -split $nl)) } else {
+      $e = $L.Count; for ($j = $s + 1; $j -lt $L.Count; $j++) { if ($L[$j] -match '^## ') { $e = $j; break } }
+      $vo = [regex]::Match(($L.GetRange($s, $e - $s) -join $nl), 'verified\**:\s*(\S+)').Groups[1].Value
+      $vn = [regex]::Match($rec, 'verified\**:\s*(\S+)').Groups[1].Value
+      if (-not ($vo -and $vn -and $vo -gt $vn)) {
+        $new = [string[]]($rec -split $nl); if ($e -lt $L.Count) { $new += '' }
+        $L.RemoveRange($s, $e - $s); $L.InsertRange($s, [string[]]$new) } } }
+  $res = ($L -join $nl).TrimEnd() + $nl
+  if ($res -cne $old) { $tmp = "$f.tmp-$tok"; [IO.File]::WriteAllText($tmp, $res, (New-Object Text.UTF8Encoding $false))
+    if (Test-Path $f) { [IO.File]::Replace($tmp, $f, [NullString]::Value) } else { [IO.File]::Move($tmp, $f) } }
+} finally {
+  if ("$(Get-Content "$lock/owner" -ErrorAction SilentlyContinue)" -like "$tok *") { Remove-Item $lock -Recurse -Force }
+  Remove-Item $in -ErrorAction SilentlyContinue
+}
+```
+
+POSIX shell (Linux, macOS):
+
+```sh
+f='<file>'; mode='<create|row|section>'; key='<key>'; in='<record file>'; lock="$f.lock"
+h=$(hostname -s 2>/dev/null || hostname); tok=$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')
+st() { ps -o lstart= -p "$1" 2>/dev/null | tr -s ' ' '_'; }
+mkdir -p "$(dirname "$f")" "$(dirname "$lock")"; got=; i=0
+while [ $i -lt 50 ]; do
+  if mkdir "$lock" 2>/dev/null; then echo "$tok $h $$ $(st $$)" > "$lock/owner"; got=1; break; fi
+  set -- $(cat "$lock/owner" 2>/dev/null)
+  if [ $# -eq 4 ] && [ "$2" = "$h" ] && [ "$(st "$3")" != "$4" ]; then
+    mv "$lock" "$lock.dead-$tok" 2>/dev/null && rm -rf "$lock.dead-$tok"
+  else sleep 0.1; fi; i=$((i+1))
+done
+[ -n "$got" ] || { echo "MEM: $lock is held; write not done" >&2; exit 1; }
+trap '[ "$(cut -d" " -f1 "$lock/owner" 2>/dev/null)" = "$tok" ] && rm -rf "$lock"; rm -f "$in" "$f.tmp-$tok"' EXIT
+src=$f; [ -f "$f" ] || src=/dev/null
+awk -v mode="$mode" -v key="$key" -v recf="$in" '
+  BEGIN { while ((getline l < recf) > 0) { sub(/\r$/, "", l); rec = rec (n++ ? "\n" : "") l }
+          if (match(rec, /verified\**:[ \t]*[^ \t\n]+/)) { vn = substr(rec, RSTART, RLENGTH); sub(/.*:[ \t]*/, "", vn) } }
+  { sub(/\r$/, ""); L[NR] = $0 }
+  END {
+    while (NR > 0 && L[NR] ~ /^[ \t]*$/) NR--
+    if (mode == "create") { if (NR) for (i = 1; i <= NR; i++) print L[i]; else print rec; exit }
+    if (mode == "row") {
+      r = 0; last = 0
+      for (i = 1; i <= NR; i++) if (L[i] ~ /^\|/) { last = i; if (!r) { split(L[i], a, "|"); k = a[2]; gsub(/^[ \t]+|[ \t]+$/, "", k); if (k == key) r = i } }
+      for (i = 1; i <= NR; i++) { print (i == r ? rec : L[i]); if (!r && i == last) print rec }
+      if (!r && !last) print rec; exit }
+    s = 0; for (i = 1; i <= NR; i++) if (L[i] ~ /^##[ \t]/) { t = L[i]; sub(/^##[ \t]+/, "", t); sub(/[ \t]+$/, "", t); if (t == key) { s = i; break } }
+    if (!s) { for (i = 1; i <= NR; i++) print L[i]; if (NR) print ""; print rec; exit }
+    e = NR + 1; for (i = s + 1; i <= NR; i++) if (L[i] ~ /^## /) { e = i; break }
+    cur = ""; for (i = s; i < e; i++) cur = cur L[i] "\n"
+    vo = ""; if (match(cur, /verified\**:[ \t]*[^ \t\n]+/)) { vo = substr(cur, RSTART, RLENGTH); sub(/.*:[ \t]*/, "", vo) }
+    for (i = 1; i < s; i++) print L[i]
+    if (vo != "" && vn != "" && vo > vn) { for (i = s; i < e; i++) print L[i] } else { print rec; if (e <= NR) print "" }
+    for (i = e; i <= NR; i++) print L[i] }
+' "$src" > "$f.tmp-$tok" || exit 1
+if cmp -s "$f.tmp-$tok" "$f"; then rm -f "$f.tmp-$tok"; else mv -f "$f.tmp-$tok" "$f"; fi
+```
+
+Between clones, git is the boundary: when a merge or rebase conflicts in `MEM.upgrades.md`, resolve it by rule —
+the union of step ids; for an id carrying different results, run the step's `done when` detection again and record
+what it finds; if detection cannot decide, keep `declined`, and show the line to the user.
+
+## Host-neutral knowledge base
+
+Operative KB content — `MEM.config.md`, `MEM.project.md`, `architecture/`, `docs/`, `conventions/`, `references/`,
+open tasks, extensions' `custom/` — **must** stay host-neutral: no absolute paths of one machine, no hostnames, no
+usernames, no claim that a tool is available. Use repository-relative paths, paths relative to the tools root,
+environment-relative paths (`%LOCALAPPDATA%`, `$HOME`), or a pointer to the machine base; state what the project
+**requires**, not what a machine has. Logs, troubleshooting, decisions, archives, examples and deployment targets may
+contain absolute paths where they are the point. Product code **should not** read KB files to find its tools.
 
 ---
 
@@ -582,7 +807,7 @@ These are available without any extension, because they must answer on a bare in
 | Command | Target | Behavior |
 |---|---|---|
 | `MEM HELP` | optional extension id | Without a target, list the available commands with their one-line purpose: core commands, then those registered in `EXT.md`. With an extension id, give that extension's full help, as described in "Help requests" |
-| `MEM STATUS` | none | Report the MEM version, `KB_ROOT`, the configuration in effect, and the registered extensions with their status and both versions — installed, and available per the manifest |
+| `MEM STATUS` | none | Report the MEM version, `KB_ROOT`, the configuration in effect, the registered extensions with their status and both versions — installed, and available per the manifest — open upgrade steps, and, from the machine base, the summary's date and the checkouts on this machine that are behind |
 | `MEM INIT` | none | Run first-time initialization |
 | `MEM UPDATE` | none | Update `MEM.md` from `mem_update_url`, apply upgrade notes, then check extension versions — all as described in "Updating MEM" and "Checking extension versions" |
 | `MEM LINT` | optional path | Review the knowledge base as described in "Linting the knowledge base" |
@@ -619,7 +844,8 @@ At session start, the agent **should** read:
 3. `MEM.index.md`, if present;
 4. `MEM.project.md`, if present;
 5. `extensions/EXT.md`, if present and `extensions_enabled` is true — it is the routing table for reserved commands and must be known before one appears;
-6. relevant files under `architecture/`, `docs/`, `conventions/`, `decisions/`, `tasks/`, `troubleshooting/`, or `extensions/` based on the user's request.
+6. the machine summary and the headers of the two upgrade ledgers, when they exist — see "Machine base" and "Upgrade steps and ledgers";
+7. relevant files under `architecture/`, `docs/`, `conventions/`, `decisions/`, `tasks/`, `troubleshooting/`, or `extensions/` based on the user's request.
 
 Before non-trivial changes, additionally read the relevant KB pages and inspect the source code. The code is implementation truth; the KB is the explanation layer.
 
@@ -847,7 +1073,10 @@ Periodically, or on user request (`Review and lint the project knowledge base.`)
 - done items still marked as open;
 - stale current items that should move to `done/` or be updated;
 - troubleshooting entries that should be generalized;
-- documentation that no longer matches the source code.
+- documentation that no longer matches the source code;
+- host-specific content — absolute paths of a machine, hostnames, usernames, availability claims — per "Host-neutral
+  knowledge base": in operative pages, propose a rewrite or a move to the machine base; in historical pages, list the
+  hits as information only.
 
 If `ask_before_large_reorganization` is enabled, ask before broad restructuring, mass renames, or large rewrites.
 
@@ -878,5 +1107,8 @@ Use lightweight standard templates. Use placeholders where information is not ye
 ```
 
 Do not invent project details.
+
+Propose a `project_id` for `MEM.config.md` — a short slug of the repository or folder name — with the files above.
+The machine base is not created here: it is created when first needed.
 
 Then, unless `extensions_enabled` is false, offer the catalogue as described in "Offering the catalogue".

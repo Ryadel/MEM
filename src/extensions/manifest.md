@@ -62,6 +62,9 @@ exact update set for that extension.
 extension's base `index.md` — see `MEM.md`, "Checking extension versions". A gap is reported and may be
 proposed; it never authorises an install on its own.
 
+An extension whose update needs migration lists `UPGRADE.md` among its base files. Its steps run after the
+update, in the plan the update builds — see `MEM.md`, "Upgrade steps and ledgers".
+
 `bootstrap entry` is optional and declares a file the extension creates under its own `custom/` at installation.
 It is **not** a base file and is never written by an update: listing it here only tells a reader it exists.
 
@@ -96,21 +99,22 @@ Nothing under `extensions/mem-commands/custom/` is listed here, and an update th
 
 ### mem-toolbox
 
-- **version**: 1.0.3
+- **version**: 1.1.0
 - **provides**: `TOOLS` (subcommands `CHECK`, `SETUP`), and the tool, library and runtime capability registry
 - **precedence**: custom
-- **external actions**: yes — the machine file `~/.mem/mem-toolbox/host.md` once confirmed, and approved package
-  installs into a dedicated agent environment
+- **external actions**: yes — tool sections and summary rows in the core's machine file,
+  `~/.mem/hosts/<hostname>/machine.md`, and approved package installs into a dedicated agent environment
 - **executable content**: no
 - **default mode**: read-only
-- **summary**: which CLI tool or library to use for a task, and whether it is available on this host, recorded
-  once per machine in `~/.mem/mem-toolbox/`. Ships a catalogue for media, documents and data, with the Python and
-  Node runtimes libraries need.
+- **summary**: which CLI tool or library to use for a task, and what this machine has, recorded once per machine in
+  the core's machine base. Ships a catalogue for media, documents and data, with the Python and Node runtimes
+  libraries need. Requires MEM 1.3.0.
 - **base files**:
 
 ```text
 extensions/mem-toolbox/index.md
 extensions/mem-toolbox/TOOL.template.md
+extensions/mem-toolbox/UPGRADE.md
 extensions/mem-toolbox/catalog/index.md
 extensions/mem-toolbox/catalog/imagemagick.md
 extensions/mem-toolbox/catalog/vips.md
