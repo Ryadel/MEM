@@ -12,7 +12,8 @@ For MEM versions using `MAJOR.MINOR.BUILD`:
 2. then apply each missing MINOR upgrade in order;
 3. then apply MAJOR upgrades in order.
 
-Do not skip intermediate upgrade notes unless the target upgrade explicitly says it supersedes earlier steps.
+Do not skip intermediate upgrade notes unless the target upgrade explicitly says it supersedes earlier steps. "Prose
+hops in a run", below, says which actions of the older hops a newer core supersedes.
 
 Before applying an upgrade, identify the current local MEM version and the target MEM version. After applying an upgrade, update links and indexes touched by the migration.
 
@@ -24,8 +25,9 @@ MEM version rather than migrated step by step.
 
 ## Running an upgrade
 
-Hops up to `1.2.3 -> 1.2.4` are prose: apply their **Required actions** as written. From `1.2.4 -> 1.3.0` a hop is a
-list of **steps**, and an extension's `UPGRADE.md` uses the same format. `MEM.md`, "Upgrade steps and ledgers",
+Hops up to `1.2.3 -> 1.2.4` are prose: apply their **Required actions** as written, except where "Prose hops in a run"
+below says a newer core supersedes them. From `1.2.4 -> 1.3.0` a hop is a list of **steps**, and an extension's
+`UPGRADE.md` uses the same format. `MEM.md`, "Upgrade steps and ledgers",
 defines the ledgers and when a plan is built; this section defines the steps and the run. Continuous duties — keeping
 this checkout's row in `projects.md`, merging the legacy machine file — are not steps: `MEM.md`, "Machine base",
 defines them.
@@ -93,12 +95,41 @@ In the host ledger a checkout-scope step is keyed `<step id>@<checkout>`. Every 
 `MEM.md`, "Writing shared files": `create` with the skeleton above, then one `row` per result. New rows are appended,
 so two clones recording steps conflict in git; `MEM.md` gives the rule that resolves it.
 
+### Prose hops in a run
+
+A prose hop between the `planned` core version and the installed one is **one plan item**, applied in version order
+before the step hops, and recorded as one ledger row keyed `core/<version>/hop`, where `<version>` is the hop's target
+version (`core/1.2.1/hop` for `1.2.0 -> 1.2.1`). Its result is `done` when every action that still applies is in place,
+`deferred` or `declined` as the user chooses for the actions that need approval, and `failed` when a check fails. A
+knowledge base with no ledger yet plans from the version its `MEM.md` reported before the update.
+
+The installed core is usually newer than the hop — `MEM.md` is replaced first, and a partial upgrade can leave older
+hops for a later session. Apply a prose hop **against the installed versions**:
+
+- **Never install an older `MEM.md`.** "Replace `MEM.md` with version X" is satisfied by the installed core: skip it.
+- **Extensions go to the version the manifest lists now.** An action that updates an extension to an intermediate
+  version proposes, once, the update to the current one; its follow-up actions (re-running a setup, the answers it
+  reuses) apply to that version as its own `index.md` describes. Clean-up of what an older version left behind — a
+  renamed catalogue entry to delete, a section to rename — still applies.
+- **Machine facts belong to the machine base.** Under core 1.3.0 or later, skip every action that creates, imports
+  into, keeps or asks questions for a per-knowledge-base host file or the legacy machine file:
+  `extensions/mem-toolbox/custom/installed/<host>.md` (`1.1.3 -> 1.1.4`, `1.2.0 -> 1.2.1`), `~/.mem/mem-toolbox/host.md`,
+  `extensions_mem_toolbox_kb_copy`, the tools-root and source-control questions. `core/1.3.0/host-tree`,
+  `core/1.3.0/machine-summary` and the `UPGRADE.md` of `mem-toolbox` 1.1.0 supersede them, and a later session must not
+  recreate what they removed.
+- **Everything else applies as written**, read against the installed core: where the hop and the installed `MEM.md` or
+  extension disagree, the installed text wins; an action whose result is already in place changes nothing. A
+  configuration key a later hop removes is not added.
+- **Verification** checks only what the installed versions still define: a check of `MEM.md`'s version is met by any
+  later version, and checks on superseded files are skipped.
+
 ### The run
 
-1. **Plan** — the candidates are: every step of every hop between the `planned` versions and the installed ones, core
-   and extensions; **every step recorded `failed`, `deferred` or `blocked`, whatever its version**; and, when a
-   reconciliation asked for the plan, every instance of that extension's parameterised steps with no row yet. Drop
-   `done` and `declined`; evaluate `applies if` and `blocked if`; order by `after`.
+1. **Plan** — the candidates are: every prose hop and every step of every step hop between the `planned` versions and
+   the installed ones, core and extensions; **every step or prose hop recorded `failed`, `deferred` or `blocked`,
+   whatever its version**; and, when a reconciliation asked for the plan, every instance of that extension's
+   parameterised steps with no row yet. Drop `done` and `declined`; evaluate `applies if` and `blocked if`; order
+   prose hops by version, then steps by `after`.
 2. **Confirm once** — automatic steps, steps needing approval, blocked steps with their reason, steps done elsewhere;
    apply all, choose, or later. Values for `asks: answer` steps are asked in the same round.
 3. **Apply** in order; **verify** each; **record** each result as soon as it is known, so that an interrupted run
@@ -178,7 +209,10 @@ steps. `mem-toolbox` 1.1.0 ships with it and brings its own `UPGRADE.md`.
 - **scope**: project
 - **applies if**: `MEM.config.md` has no `project_id`, or it is `null`
 - **done when**: `project_id` is set to a non-empty slug
-- **asks**: answer — propose a short slug of the repository or folder name, recommended first
+- **asks**: answer — propose a slug, recommended first: the one the project already documents for itself (in a
+  decision record, a domain, a package or build name) when there is one; otherwise the product's name — not a role
+  folder such as `private` or `dev` — in lower case, each run of separators (space, `.`, `_`, `-`) becoming one `-`,
+  CamelCase not split (`Myst.WebSite` → `myst-website`, `RoleMaze` → `rolemaze`)
 - **action**: add `project_id: "<slug>"` to `MEM.config.md`.
 - **verify**: `MEM.config.md` carries the value.
 
@@ -197,8 +231,11 @@ steps. `mem-toolbox` 1.1.0 ships with it and brings its own `UPGRADE.md`.
 ### Verification
 
 - `MEM.md` reports 1.3.0.
-- `~/.mem/hosts/<hostname>/machine.md` exists with a dated summary; the host ledger and `MEM.upgrades.md` record
-  `planned: core 1.3.0` and the results of the steps above.
+- `~/.mem/hosts/<hostname>/machine.md` exists with a dated summary; the host ledger and `MEM.upgrades.md` record the
+  results of the steps above and, once the run has closed, `planned: core 1.3.0` with the installed extensions. Until
+  then `planned` keeps the older version, and the hops still pending are planned again from it.
+- No `extensions/mem-toolbox/custom/installed/<host>.md` was created or recreated by an older hop applied in the same
+  run or later.
 - `MEM.config.md` has `project_id`, or the step is recorded `declined`.
 - `projects.md` has a row for this checkout.
 
