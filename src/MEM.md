@@ -1,6 +1,6 @@
 # [MEM: Markdown Embedded Memory](https://github.com/Ryadel/MEM)
 
-MEM version: 1.3.0
+MEM version: 1.4.0
 
 This file is the LLM agent's bootstrap memory for this project. The terms `MEM`, `MEM.md`, project context, and project memory all refer to this file. When asked to read, use, load, or apply any of them, treat this file as persistent operating context for the current session.
 
@@ -967,6 +967,31 @@ Do not introduce new patterns that conflict with documented project conventions.
 
 Scripts, tests and helpers the agent writes and runs **should** start their child processes without visible windows, as executable content must (see "Instruction text and executable content"): a test suite spawning interpreters can otherwise flash dozens of console windows while the user works. This governs the code the agent writes; how the agent's own client starts its tools is outside MEM's control.
 
+## Text files
+
+Edit tools replace exact text, so a line ending other than the one expected makes a replacement fail, and a file
+rewritten whole converts every line ending, burying a three-line change in a whole-file diff. Until the project fixes
+its conventions in files its own tools enforce — see "Text file conventions" — the agent keeps each file as it finds
+it. When writing a text file, the agent **must**:
+
+- **keep** its line endings, its byte order mark (BOM) or the lack of one, and its encoding. In a file that mixes line
+  endings, use the one already at the point edited. A new file follows the convention recorded in
+  `conventions/coding-style.md`, or without one the files beside it;
+- **not rewrite** a whole file to change part of it. When an exact replacement fails on line endings, retry with a match
+  that accepts `CRLF` or `LF` at each line break;
+- **name the encoding and the line ending** whenever code writes a file: text-mode defaults depend on the platform. On
+  Windows, Python's text mode turns every `\n` into `CRLF` and uses the locale's code page unless told otherwise — pass
+  `encoding="utf-8"` and `newline=""` to keep what was read, or `newline="\n"`. In Windows PowerShell 5.1, `Set-Content`
+  writes the ANSI code page, `>` and `Out-File` write UTF-16, `-Encoding UTF8` always adds a BOM, `Get-Content` without
+  `-Encoding` reads UTF-8 without a BOM as ANSI, and `Get-Content | Set-Content` rejoins every line with `CRLF`; for
+  UTF-8 without a BOM use `[IO.File]::WriteAllText($path, $text, (New-Object Text.UTF8Encoding $false))`;
+- **edit a file that is not valid UTF-8 in its own encoding**, once identified — for example Windows-1252 — or stop and
+  ask. Read as UTF-8 and saved, such a file loses every non-ASCII character for good. Never save a file that gains a
+  U+FFFD, the replacement character, that it did not have: it marks a character already lost;
+- **check the diff** after editing: `git diff --numstat` lists only the lines intended. With `core.autocrlf` set and no
+  `.gitattributes` rule, a line-ending conversion may not show there: compare the `w/` column of `git ls-files --eol`
+  for the files touched, before and after.
+
 ## Agent credit
 
 With `agent_credit: false`, the default, the agent **must not** add any line crediting an AI agent, model or
@@ -1095,7 +1120,9 @@ Periodically, or on user request (`Review and lint the project knowledge base.`)
 - documentation that no longer matches the source code;
 - host-specific content — absolute paths of a machine, hostnames, usernames, availability claims — per "Host-neutral
   knowledge base": in operative pages, propose a rewrite or a move to the machine base; in historical pages, list the
-  hits as information only.
+  hits as information only;
+- text files, per "Text file conventions": run the check again, report what changed since the state recorded in
+  `conventions/coding-style.md`, and propose the normalization only as that section allows.
 
 If `ask_before_large_reorganization` is enabled, ask before broad restructuring, mass renames, or large rewrites.
 
@@ -1130,4 +1157,77 @@ Do not invent project details.
 Propose a `project_id` for `MEM.config.md` — a short slug of the repository or folder name — with the files above.
 The machine base is not created here: it is created when first needed.
 
+Run the check in "Text file conventions", record its outcome, and propose the normalization when that section says to.
+
 Then, unless `extensions_enabled` is false, offer the catalogue as described in "Offering the catalogue".
+
+---
+
+# Text file conventions
+
+> Read this section at initialization, when running `MEM LINT`, when an edit runs into line endings or encoding, or
+> when the user asks to normalize the repository.
+
+A project handles this on its own once its conventions live where its tools enforce them — `.gitattributes` for Git,
+`.editorconfig` for editors — so that every person, agent and tool follows them without being told. MEM's part is to
+notice when they are missing, put them in place with the user's approval, and record the decision. Until then the
+rules in "Text files" apply. In a workspace of several repositories, each repository is checked and normalized on its
+own.
+
+## The check
+
+Read-only. With Git, the parts that matter most need no script:
+
+1. **Declarations**: a `.gitattributes` with a `text` rule, and an `.editorconfig` with `end_of_line`, at the
+   repository root.
+2. **Line endings**: `git ls-files --eol`. The `i/` column is the repository: `i/crlf` and `i/mixed` are the files a
+   normalization changes. The `w/` column is the working tree and does not measure that: with `core.autocrlf` set, a
+   file with `CRLF` on disk is usually `LF` in the repository.
+3. **Lost characters**: `git grep -I -l -P "\x{FFFD}"` lists the files containing U+FFFD.
+4. **BOM**: `git grep -I -l -P "^\x{FEFF}"` lists the files that have one.
+5. **Legacy encodings**: Git does not find files that are not valid UTF-8 — `git grep -P` skips their lines silently.
+   The agent **may** find them with a short read-only script that decodes each tracked text file as UTF-8.
+
+Without Git, the check is the `.editorconfig` declaration and the script.
+
+Record the outcome in `conventions/coding-style.md`, section "Text files": line endings, charset and BOM, and whether
+the repository is normalized, with the commit. Not the counts: they change with every commit, and the check recomputes
+them.
+
+When a declaration is missing, or the check finds `i/crlf`, `i/mixed` or U+FFFD, propose the normalization — once. A
+refusal is recorded in the same section; from then on `MEM LINT` reports the findings as information and does not
+propose it again unless the user asks.
+
+## Normalizing
+
+It rewrites tracked files, so it **must** be approved, and it **must** start from a clean working tree: work in
+progress is committed first, so that the normalization commit changes line endings and nothing else.
+
+1. **Decide with the user**:
+   - line endings on checkout: `eol=crlf`, `eol=lf`, or none, which leaves each clone its platform's own. The
+     repository stores `LF` whatever the choice, so the choice does not change the size of the commit; recommend what
+     the project's tools expect;
+   - charset and BOM. Git does not normalize BOMs, and an editor applying `.editorconfig` adds or removes one each time
+     it saves a file: either convert every file in the same commit, or leave `charset` out of `.editorconfig` until it
+     is decided.
+2. **`.gitattributes`**: `* text=auto` with the chosen `eol`; the exceptions that must not follow it — `*.sh text
+   eol=lf`, `*.bat` and `*.cmd` `text eol=crlf`; `binary` for the binary types detection could miss.
+3. **`.editorconfig`**: `root = true` and a `[*]` section with `end_of_line` and, if decided, `charset`, matching the
+   above.
+4. **Commit**: `git add --renormalize .`; check that `git status` lists the two files above and only the files the
+   check found `i/crlf` or `i/mixed`; commit them alone.
+5. **Working tree**: `--renormalize` changes the repository, not the files on disk. Rewrite them with
+   `git rm --cached -r -q .` then `git reset --hard` — safe only because the tree was clean.
+6. **Blame**: add the commit's hash to `.git-blame-ignore-revs`, in a second commit. GitHub reads it; locally each clone
+   needs `git config blame.ignoreRevsFile .git-blame-ignore-revs` — propose it, never set it unasked.
+7. **Other branches and clones**: a branch opened before the commit conflicts on the files it changed; merge or rebase
+   it with `-X renormalize`. Tell the user: other people's clones are affected too.
+
+## Lost and legacy characters
+
+- A file in a legacy encoding has lost nothing: convert it to the project's charset, with approval, in a dedicated
+  commit.
+- A file containing U+FFFD lost its characters when it was saved. Before rebuilding them by hand, search the history
+  (`git log -p -- <file>`, `git show <commit>:<file>`): the latest version without U+FFFD, decoded in its own encoding,
+  gives the original characters. Restore those characters only, never the older content. Where the history has none,
+  rebuild a character from context only when it is unambiguous, and show every line changed.

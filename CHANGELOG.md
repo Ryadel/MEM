@@ -4,6 +4,34 @@ All notable MEM changes are documented in this file.
 
 MEM uses `MAJOR.MINOR.BUILD` versioning. Version-to-version migration steps are documented in [MEM.upgrade.md](MEM.upgrade.md).
 
+## 1.4.0 - 2026-11-14
+
+"Text files".
+
+### Added
+
+- **Text files** (code modification rules): the agent keeps each file's line endings, BOM and encoding; never
+  rewrites a whole file to change part of it, and retries a replacement that fails on line endings with a match that
+  accepts `CRLF` or `LF`; names the encoding and line ending whenever code writes a file (Python's text mode and
+  Windows PowerShell 5.1 defaults documented); edits a non-UTF-8 file in its own encoding or stops; never saves a file
+  that gains U+FFFD; checks the diff after editing, with `git ls-files --eol` where `core.autocrlf` can hide a
+  conversion.
+- **Text file conventions**: a read-only check — `.gitattributes` and `.editorconfig` declarations, `git ls-files --eol`
+  for files stored with `CRLF` or mixed endings, `git grep -P` for U+FFFD and BOMs, an optional script for legacy
+  encodings — run at initialization and by `MEM LINT`. The outcome is recorded in `conventions/coding-style.md`. When
+  something is missing the agent proposes, once, a normalization: decided with the user, from a clean tree, one
+  commit that changes only line endings, the working tree refreshed, the hash in `.git-blame-ignore-revs`, other
+  branches merged with `-X renormalize`. Lost characters are recovered from the history before being rebuilt by hand.
+
+### Changed
+
+- `MEM LINT` runs the text-file check again and reports changes against the recorded state.
+- Initialization runs the text-file check.
+
+### Configuration
+
+- No changes.
+
 ## 1.3.0 - 2026-11-08
 
 "User-host scopes and shared tooling".

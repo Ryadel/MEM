@@ -597,6 +597,14 @@ The folder also cleans itself. At the start of a session the agent deletes every
 
 When the agent has to build beside a locked build, it redirects the intermediates as well as the outputs. Moving only `bin/` leaves both builds writing the same `obj/`, which is where intermittent, unreproducible build errors come from. On .NET 8 and later, `dotnet build --artifacts-path .tmp/build` does both.
 
+## Line endings and encoding
+
+Agent edit tools replace text byte for byte. In a repository where some files end lines with `CRLF`, others with `LF` and a few mix both, a replacement fails on a line break, and the agent falls back to rewriting the file, which converts every line ending and turns a three-line change into a whole-file diff. Encodings do worse: a file saved long ago in Windows-1252, read as UTF-8 and saved again, loses its accented letters for good. Platform defaults cause much of it: on Windows, Python's text mode writes `CRLF`, and Windows PowerShell 5.1's `Set-Content` writes the ANSI code page.
+
+MEM deals with it in two ways. While the project has no declared convention, the agent keeps every file as it finds it — line endings, byte order mark and encoding — never rewrites a file to change part of it, always names the encoding and line ending when code writes a file, refuses to save a file that would lose characters, and checks that the diff shows only the lines it meant to change.
+
+The lasting fix belongs to the project itself: a `.gitattributes` and an `.editorconfig` that Git and editors enforce for everyone, MEM or not. At initialization and on `MEM LINT`, the agent checks for them, counts the files Git stores with `CRLF` or mixed endings (`git ls-files --eol`), and looks for characters already lost. When something is missing it proposes, once, a normalization: one commit that changes only line endings, recorded in `.git-blame-ignore-revs`, made after your work in progress is committed. Lost characters are recovered from the history where possible. The outcome — or your refusal, which is not asked again — is recorded in `conventions/coding-style.md`.
+
 ## Agent credit
 
 Coding assistants often sign their work: a `Co-authored-by:` trailer naming the model, a "Generated with" line at the end of a pull request description. MEM tells the agent not to, by default. With `agent_credit: false` nothing the agent writes into version control or publishes for the project — commit and tag messages, pull request descriptions, release notes, code comments — carries a line crediting an AI agent, model or tool, even when the agent's own tooling adds one by default.
@@ -712,6 +720,8 @@ Use placeholders where information is not known yet:
 ```
 
 Do not invent project details.
+
+The agent also checks the repository's line endings and encodings, as described in "Line endings and encoding", and proposes a normalization if they are not declared.
 
 ## Example daily log
 

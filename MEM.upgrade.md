@@ -139,6 +139,43 @@ hops for a later session. Apply a prose hop **against the installed versions**:
    versions, and its recorded results are skipped.
 5. **Report** — the daily log line defined in `MEM.md`.
 
+## 1.3.0 -> 1.4.0
+
+### Summary
+
+"Text files". The agent keeps each file's line endings, BOM and encoding while it edits, and the project is offered a
+lasting fix: `.gitattributes` and `.editorconfig` that its own tools enforce, and a one-time normalization commit. See
+"Text files" and "Text file conventions" in `MEM.md`.
+
+### Required actions
+
+- Replace `MEM.md` with version 1.4.0, then run the step below as described in "Running an upgrade".
+
+### Configuration changes
+
+- None.
+
+### Steps
+
+#### core/1.4.0/text-files — Check and record the text-file conventions
+
+- **scope**: project
+- **applies if**: `conventions/coding-style.md` has no "Text files" section
+- **done when**: that section exists and records the convention, the normalization commit, or the user's refusal
+- **asks**: yes
+- **action**: run the check in "Text file conventions" on each repository of the project and show its outcome. When it
+  finds something to fix, propose the normalization as that section describes; if work in progress is uncommitted,
+  propose it for after that commit and record the step `deferred`. Record the outcome in `conventions/coding-style.md`,
+  creating the file if needed.
+- **verify**: the section exists. After a normalization, `.gitattributes` exists and `git ls-files --eol` lists no
+  `i/crlf` or `i/mixed` file outside the exceptions it declares.
+
+### Verification
+
+- `MEM.md` reports 1.4.0.
+- `MEM.upgrades.md` records `core/1.4.0/text-files` and, once the run has closed, `planned: core 1.4.0` with the
+  installed extensions.
+
 ## 1.2.4 -> 1.3.0
 
 ### Summary
