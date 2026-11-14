@@ -4,6 +4,24 @@ All notable MEM changes are documented in this file.
 
 MEM uses `MAJOR.MINOR.BUILD` versioning. Version-to-version migration steps are documented in [MEM.upgrade.md](MEM.upgrade.md).
 
+## 1.4.1 - 2026-11-14
+
+### Changed
+
+- **Text files**: Python must pass `newline=""` both when reading and when writing — reading in text mode has
+  already turned `CRLF` into `\n`; `sed -i` in Git for Windows' shell writes `CRLF` files back with `LF` (use
+  `sed -b -i` or `perl -pi`).
+- **Text file conventions**: the normalization stages `.gitattributes` and `.editorconfig` explicitly before
+  `git add --renormalize .`, which stages only tracked files; `.editorconfig` carries one section per `.gitattributes`
+  exception (`[*.sh]`, `[*.{bat,cmd}]`); the recorded state is one of normalized, nothing to fix, declined or
+  **pending**, and a pending normalization is proposed again.
+- `MEM.upgrade.md`: `core/1.4.0/text-files` applies while the state is pending, so a postponed normalization no longer
+  turns `not-applicable` when the section exists.
+
+### Configuration
+
+- No changes.
+
 ## 1.4.0 - 2026-11-14
 
 "Text files".

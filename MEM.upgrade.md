@@ -139,6 +139,32 @@ hops for a later session. Apply a prose hop **against the installed versions**:
    versions, and its recorded results are skipped.
 5. **Report** — the daily log line defined in `MEM.md`.
 
+## 1.4.0 -> 1.4.1
+
+### Summary
+
+Corrections to "Text files" and "Text file conventions" after review: Python must pass `newline=""` when reading as
+well as writing; `sed -i` in Git for Windows' shell drops `CR`; the normalization stages `.gitattributes` and
+`.editorconfig` explicitly, since `git add --renormalize` stages only tracked files; `.editorconfig` repeats the
+`.gitattributes` exceptions; the recorded state gains **pending**, so a postponed normalization is not lost. The step
+`core/1.4.0/text-files` was corrected in place for the same reason.
+
+### Required actions
+
+- Replace `MEM.md` with version 1.4.1. No steps: `core/1.4.0/text-files` is re-planned from its `deferred` row with
+  the corrected definition. If the ledger records it `not-applicable` while the "Text files" section records no final
+  state, plan it again.
+- A normalization committed under 1.4.0: if `.gitattributes` or `.editorconfig` is untracked (`git status` shows
+  `??`), propose committing it; if `.editorconfig` lacks the exception sections, propose adding them.
+
+### Configuration changes
+
+- None.
+
+### Verification
+
+- `MEM.md` reports 1.4.1.
+
 ## 1.3.0 -> 1.4.0
 
 ### Summary
@@ -160,15 +186,16 @@ lasting fix: `.gitattributes` and `.editorconfig` that its own tools enforce, an
 #### core/1.4.0/text-files — Check and record the text-file conventions
 
 - **scope**: project
-- **applies if**: `conventions/coding-style.md` has no "Text files" section
-- **done when**: that section exists and records the convention, the normalization commit, or the user's refusal
+- **applies if**: `conventions/coding-style.md` has no "Text files" section, or the section's state is **pending**
+- **done when**: the section records a final state: **normalized** with the commit, **nothing to fix**, or **declined**
 - **asks**: yes
 - **action**: run the check in "Text file conventions" on each repository of the project and show its outcome. When it
-  finds something to fix, propose the normalization as that section describes; if work in progress is uncommitted,
-  propose it for after that commit and record the step `deferred`. Record the outcome in `conventions/coding-style.md`,
-  creating the file if needed.
-- **verify**: the section exists. After a normalization, `.gitattributes` exists and `git ls-files --eol` lists no
-  `i/crlf` or `i/mixed` file outside the exceptions it declares.
+  finds something to fix, propose the normalization as that section describes. Record the outcome in
+  `conventions/coding-style.md`, creating the file if needed. If the user postpones it, or work in progress is
+  uncommitted, record the state **pending** and the step `deferred`: the step is planned again, and still applies,
+  until the state is final.
+- **verify**: the section records a final state. After a normalization, `.gitattributes` and `.editorconfig` are in
+  the commit, and `git ls-files --eol` lists no `i/crlf` or `i/mixed` file outside the exceptions it declares.
 
 ### Verification
 

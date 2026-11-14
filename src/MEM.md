@@ -1,6 +1,6 @@
 # [MEM: Markdown Embedded Memory](https://github.com/Ryadel/MEM)
 
-MEM version: 1.4.0
+MEM version: 1.4.1
 
 This file is the LLM agent's bootstrap memory for this project. The terms `MEM`, `MEM.md`, project context, and project memory all refer to this file. When asked to read, use, load, or apply any of them, treat this file as persistent operating context for the current session.
 
@@ -980,8 +980,11 @@ it. When writing a text file, the agent **must**:
 - **not rewrite** a whole file to change part of it. When an exact replacement fails on line endings, retry with a match
   that accepts `CRLF` or `LF` at each line break;
 - **name the encoding and the line ending** whenever code writes a file: text-mode defaults depend on the platform. On
-  Windows, Python's text mode turns every `\n` into `CRLF` and uses the locale's code page unless told otherwise — pass
-  `encoding="utf-8"` and `newline=""` to keep what was read, or `newline="\n"`. In Windows PowerShell 5.1, `Set-Content`
+  Windows, Python's text mode turns every `\n` into `CRLF` and uses the locale's code page unless told otherwise; and
+  on any platform, reading in text mode turns every `CRLF` into `\n` before the code sees it. To keep line endings,
+  pass `encoding="utf-8"` and `newline=""` **both when reading and when writing**; `newline="\n"` on writing forces
+  `LF`. In Git for Windows' shell, `sed -i` writes a `CRLF` file back with `LF`: use `sed -b -i`, or `perl -pi`, which
+  keeps it. In Windows PowerShell 5.1, `Set-Content`
   writes the ANSI code page, `>` and `Out-File` write UTF-16, `-Encoding UTF8` always adds a BOM, `Get-Content` without
   `-Encoding` reads UTF-8 without a BOM as ANSI, and `Get-Content | Set-Content` rejoins every line with `CRLF`; for
   UTF-8 without a BOM use `[IO.File]::WriteAllText($path, $text, (New-Object Text.UTF8Encoding $false))`;
@@ -1190,13 +1193,15 @@ Read-only. With Git, the parts that matter most need no script:
 
 Without Git, the check is the `.editorconfig` declaration and the script.
 
-Record the outcome in `conventions/coding-style.md`, section "Text files": line endings, charset and BOM, and whether
-the repository is normalized, with the commit. Not the counts: they change with every commit, and the check recomputes
-them.
+Record the outcome in `conventions/coding-style.md`, section "Text files": line endings, charset and BOM, and one
+state — **normalized**, with the commit; **nothing to fix**; **declined**; or **pending**, when the normalization is
+approved or proposed but postponed, for example until work in progress is committed. Not the counts: they change with
+every commit, and the check recomputes them.
 
 When a declaration is missing, or the check finds `i/crlf`, `i/mixed` or U+FFFD, propose the normalization — once. A
 refusal is recorded in the same section; from then on `MEM LINT` reports the findings as information and does not
-propose it again unless the user asks.
+propose it again unless the user asks. A **pending** one stays open: `MEM LINT` proposes it again once what postponed it is
+resolved.
 
 ## Normalizing
 
@@ -1212,10 +1217,12 @@ progress is committed first, so that the normalization commit changes line endin
      is decided.
 2. **`.gitattributes`**: `* text=auto` with the chosen `eol`; the exceptions that must not follow it — `*.sh text
    eol=lf`, `*.bat` and `*.cmd` `text eol=crlf`; `binary` for the binary types detection could miss.
-3. **`.editorconfig`**: `root = true` and a `[*]` section with `end_of_line` and, if decided, `charset`, matching the
-   above.
-4. **Commit**: `git add --renormalize .`; check that `git status` lists the two files above and only the files the
-   check found `i/crlf` or `i/mixed`; commit them alone.
+3. **`.editorconfig`**: `root = true`, a `[*]` section with `end_of_line` and, if decided, `charset`, and one section
+   per exception in `.gitattributes` — `[*.sh]` with `end_of_line = lf`, `[*.{bat,cmd}]` with `end_of_line = crlf`.
+   Without them an editor saves an exception with the global ending, and the diff does not show it.
+4. **Commit**: `git add .gitattributes .editorconfig`, then `git add --renormalize .`, which stages only files already
+   tracked; check that `git status` lists the two files and only the files the check found `i/crlf` or `i/mixed`;
+   commit them alone.
 5. **Working tree**: `--renormalize` changes the repository, not the files on disk. Rewrite them with
    `git rm --cached -r -q .` then `git reset --hard` — safe only because the tree was clean.
 6. **Blame**: add the commit's hash to `.git-blame-ignore-revs`, in a second commit. GitHub reads it; locally each clone
